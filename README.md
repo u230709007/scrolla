@@ -6,8 +6,7 @@
 
 | | |
 |---|---|
-| Live app | <!-- TODO: add the Vercel URL --> `https://…vercel.app` |
-| 2-minute demo video | <!-- TODO: add the link --> |
+| Live app | <!-- TODO: add the Vercel URL --> `https://scrolla-gq36bvowx-medine1729s-projects.vercel.app/` |
 | Network | Monad testnet (chain id `10143`) |
 | Vault contract | [`0x222b7A69766a163c1C2c315934F48E06a3D1C268`](https://testnet.monadexplorer.com/address/0x222b7A69766a163c1C2c315934F48E06a3D1C268) |
 | Tests | 11 contract tests + 5 web tests, all passing |
