@@ -1,0 +1,44 @@
+{
+  "chainId": 10143,
+  "tokens": [
+    {
+      "symbol": "MOLANDAK",
+      "name": "Molandak",
+      "address": "0xe0aEcaB1DA28F9838e56F046711909ab505f963C",
+      "seeded": true
+    },
+    {
+      "symbol": "CHOG",
+      "name": "Chog",
+      "address": "0x0D7cb0d8fe78e4849816426DedF1F9fDC9F3Ec3f",
+      "seeded": true
+    },
+    {
+      "symbol": "MOYAKI",
+      "name": "Moyaki",
+      "address": "0x64A15558ed7fAD5BCc7cf71548945A21ce19B1bB",
+      "seeded": true
+    },
+    {
+      "symbol": "PURPLE",
+      "name": "Purple Frog",
+      "address": "0xD71AEeB309b3b4c5bE0Cbb753a70eA521DF41284",
+      "seeded": true
+    },
+    {
+      "symbol": "GMONAD",
+      "name": "Gmonad",
+      "address": "0xbB560830F3DE49c45cfB9DE23227d9F027F09A1F",
+      "seeded": true
+    },
+    {
+      "symbol": "NADS",
+      "name": "Nad Army",
+      "address": "0xF9436d33611656094f3FE0919A6D30E4dc544cda",
+      "seeded": true
+    }
+  ],
+  "wrappedNative": "0x4dD6528f745cFe5C0fc8A5939b674d75b1Ff529C",
+  "router": "0x10e3cEa0162bc69F646aCC6284a02512059E1F8F",
+  "vault": "0x222b7A69766a163c1C2c315934F48E06a3D1C268"
+}
