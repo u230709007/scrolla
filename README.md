@@ -22,7 +22,7 @@ Memecoin traders find tokens on X, Telegram and Farcaster, then switch to a DEX,
 
 **What Scrolla does:** it puts discovery and execution in the same gesture. The feed shows one token per reel, with live price, volume and on-chain buyer activity. Double-tap means "like and buy". The tokens land in your own wallet.
 
-**Why it lasts past today:** the feed fills itself. A worker picks tokens with real on-chain activity (fresh trades, Scrolla buys, Farcaster buzz), writes a script, voices it and renders a vertical video, every few minutes, with free tools only. Creators can also upload their own reels. There's no content team to run out of.
+**Why it lasts past today:** the feed fills itself. A worker picks tokens with real on-chain activity (fresh trades, Scrolla buys, Farcaster buzz), writes a script, voices it and renders a vertical video, every few minutes, with free tools only. There's no content team to run out of, and no user uploads: nobody can attach a token to their own video to shill it.
 
 ## How it works
 
@@ -38,7 +38,7 @@ Memecoin traders find tokens on X, Telegram and Farcaster, then switch to a DEX,
                         ▼
  ┌──────────────── web/ (Next.js 16) ───────────────┐
  │ snap-scroll feed · likes · comments · follows    │
- │ share-to-user inbox · creator uploads · stats    │
+ │ share-to-user inbox · stats                     │
  │ double-tap ─────────────────────────┐            │
  └─────────────────────────────────────┼────────────┘
                                        ▼
@@ -74,7 +74,6 @@ We also built around Monad specifics rather than ignoring them: Monad bills the 
 | Server-side trade verification from the `Bought` event | **Live** |
 | AI video worker (token pick → script → voice → image → avatar → MP4) | **Live**: renders a reel in about a minute, on a loop |
 | Feed, likes, comments, follows, share-to-user inbox, notifications, saved reels | **Live**, stored in SQLite locally or Turso in production |
-| Creator MP4 uploads (Vercel Blob / R2 / local disk) | **Live** |
 | Live token stats | **Live**: DexScreener and GeckoTerminal trades for mainnet tokens; for testnet tokens, price and liquidity read from the pool's reserves (× real MON/USD from CoinGecko) and volume from Scrolla's on-chain buys |
 | Reels about mainnet tokens (`--source dexscreener`) | Market data is real; buying them is **disabled** while the app runs on testnet |
 | Mock tokens (when no deployment file exists) | **Demo mode**: confetti and a trade recorded as `demo`, no transaction |
@@ -143,7 +142,7 @@ This deploys the test DEX, six memecoins with liquidity and the vault, writes `c
 
 ```bash
 cd contracts && npm test        # 11 tests on Ganache, incl. a full setup:testnet run
-cd web && npm test              # 5 tests: live-feed ranking, uploads
+cd web && npm test              # 4 tests: live-feed ranking
 ```
 
 ## Under the hood
@@ -184,7 +183,7 @@ Next.js 16 (App Router), React 19, Tailwind CSS v4, Framer Motion, wagmi/viem, N
 
 - **Feed:** CSS snap scroll; only the visible video plays and the next one is preloaded. New reels appear as a "N new reels" pill instead of moving the video you're watching.
 - **Gestures:** tap to pause, double-tap to like and buy. Arrow keys scroll, `m` toggles sound.
-- **Social:** comments, follows, follower lists, share a reel to another user, inbox with notifications, saved reels, creator uploads (MP4 up to 50 MB, signature-checked).
+- **Social:** comments, follows, follower lists, share a reel to another user, inbox with notifications, saved reels. Every reel comes from the worker; users can't upload.
 - **Login:** MetaMask or any injected wallet, with Sign-In with Ethereum (single-use nonce in an httpOnly cookie, domain/chain/expiry checks, EOA and ERC-1271/6492 signatures). Guests can browse.
 
 | Route | |
@@ -193,7 +192,6 @@ Next.js 16 (App Router), React 19, Tailwind CSS v4, Framer Motion, wagmi/viem, N
 | `POST /api/trades` | Record a buy; on-chain buys are verified from the receipt |
 | `GET /api/videos/:id/stats` | Live token stats, cached 15 s |
 | `POST /api/videos/:id/like`, `GET/POST /api/videos/:id/comments`, `POST /api/videos/:id/share` | Social actions |
-| `GET/POST /api/uploads` | Creator uploads |
 | `GET /api/users`, `POST /api/users/follow`, `GET /api/users/stats`, `GET /api/inbox`, `GET/POST /api/saved` | Profiles, follows, notifications, saved reels |
 | `GET /api/auth/nonce`, `/api/auth/*` | SIWE nonce and NextAuth |
 
@@ -210,7 +208,6 @@ We'd rather tell you than have you find it:
 - **Testnet only.** Tokens and pools are ones we deployed, so prices are not market prices. Mainnet needs a real DEX router and an audit.
 - **Session keys live in `localStorage`.** An XSS bug would expose one; the damage is capped by the session budget (W-1 in SECURITY.md).
 - **No sell button.** You buy from the feed and sell in your own wallet or DEX.
-- **No content moderation** for creator uploads beyond the file checks.
 - **AI scripts can be wrong.** They're generated from market data and labelled as such, not financial advice.
 
 ## Roadmap

@@ -21,7 +21,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { type Address, formatEther, parseEther } from "viem";
 
-import { CreatorProfile, Discover, UploadScreen } from "./CreatorScreens";
+import { CreatorProfile, Discover } from "./CreatorScreens";
 
 import { FEED_CATEGORIES, type FeedCategory, type FeedPage, type FeedVideo } from "@/lib/types";
 
@@ -116,7 +116,7 @@ export function Feed({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [screen, setScreen] = useState<
-    "home" | "discover" | "upload" | "profile"
+    "home" | "discover" | "profile"
   >("home");
 
   const [saved, setSaved] = useState<FeedVideo[]>([]);
@@ -695,7 +695,7 @@ export function Feed({
             <EmptyState
               title="Your feed starts here"
 
-              body="Tap the + button below to post your first video."
+              body="New reels appear here as the AI renders them from live market data."
             />
           ) : (
             <EmptyState title={`Nothing in ${CATEGORIES[category].label.toLowerCase()} yet`} body={CATEGORIES[category].empty} />
@@ -848,26 +848,10 @@ export function Feed({
           address={address}
           saved={saved}
           onSelect={selectVideo}
-          onUpload={() => setScreen("upload")}
           onSettings={() => setSheet("profile")}
           onLogin={onRequestLogin}
           onPeople={setSheet}
           revision={profileRevision}
-        />
-      )}
-
-      {screen === "upload" && (
-        <UploadScreen
-          address={address}
-          onLogin={onRequestLogin}
-          onClose={() => setScreen("profile")}
-          onPublished={(video) => {
-            setVideos((current) => [video, ...current]);
-            setIncoming((current) => current.filter((v) => v.id !== video.id));
-            setProfileRevision((n) => n + 1);
-            setScreen("profile");
-            toast.show({ kind: "success", title: "Your video is live" });
-          }}
         />
       )}
 
@@ -894,18 +878,6 @@ export function Feed({
         >
           <Search size={22} />
           Discover
-        </button>
-
-        <button
-          onClick={() => setScreen("upload")}
-          aria-label="Create a video"
-          title="Create a video"
-          className="relative mt-1 grid h-8 w-11 place-items-center rounded-lg bg-monad text-white transition-colors hover:bg-monad-soft"
-        >
-          {/* Official Monad logomark geometry: https://monad.xyz/ */}
-          <svg width="23" height="23" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M11.782 0C8.37963 0 0 8.53443 0 11.9999C0 15.4654 8.37963 24 11.782 24C15.1844 24 23.5642 15.4653 23.5642 11.9999C23.5642 8.53458 15.1845 0 11.782 0ZM9.94598 18.8619C8.51124 18.4637 4.65378 11.5912 5.04481 10.1299C5.43584 8.66856 12.1834 4.73984 13.6181 5.1381C15.0529 5.5363 18.9104 12.4087 18.5194 13.87C18.1283 15.3314 11.3807 19.2602 9.94598 18.8619Z" />
-          </svg>
         </button>
 
         <button
