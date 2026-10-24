@@ -4,8 +4,12 @@ import { AnimatePresence, motion } from "framer-motion";
 
 import {
   ArrowUp,
+  ChevronDown,
+  Fish,
   Home,
   Loader2,
+  TrendingDown,
+  TrendingUp,
   User,
   Volume2,
   VolumeX,
@@ -19,7 +23,7 @@ import { type Address, formatEther, parseEther } from "viem";
 
 import { CreatorProfile, Discover, UploadScreen } from "./CreatorScreens";
 
-import type { FeedPage, FeedVideo } from "@/lib/types";
+import { FEED_CATEGORIES, type FeedCategory, type FeedPage, type FeedVideo } from "@/lib/types";
 
 import { explorerTx, isForeignToken, tradableAddress } from "@/lib/web3/chain";
 
@@ -51,8 +55,43 @@ const DEMO_AMOUNT = parseEther("0.1");
 
 type SheetKind = "comments" | "stats" | "session" | "profile" | "share" | "inbox" | "followers" | "following";
 
-async function fetchPage(cursor?: string | null): Promise<FeedPage> {
+const CATEGORY_KEY = "scrolla.feedCategory";
+
+const CATEGORIES: Record<FeedCategory, { label: string; className: string; empty: string }> = {
+  live: { label: "LIVE", className: "bg-dump text-white", empty: "" },
+  gainers: { label: "GAINERS", className: "bg-pump text-ink", empty: "No reels about rising tokens yet." },
+  losers: { label: "LOSERS", className: "bg-white text-dump", empty: "No reels about falling tokens yet." },
+  whales: { label: "WHALES", className: "bg-monad text-white", empty: "No big buys caught on camera yet." },
+};
+
+function storedCategory(): FeedCategory | null {
+  try {
+    const value = localStorage.getItem(CATEGORY_KEY) as FeedCategory | null;
+    return value && FEED_CATEGORIES.includes(value) ? value : null;
+  } catch {
+    return null; // unavailable storage
+  }
+}
+
+function storeCategory(category: FeedCategory) {
+  try {
+    localStorage.setItem(CATEGORY_KEY, category);
+  } catch {
+    /* unavailable storage */
+  }
+}
+
+function CategoryIcon({ category }: { category: FeedCategory }) {
+  if (category === "gainers") return <TrendingUp className="size-3" strokeWidth={3} />;
+  if (category === "losers") return <TrendingDown className="size-3" strokeWidth={3} />;
+  if (category === "whales") return <Fish className="size-3" strokeWidth={3} />;
+  return <span className="size-1.5 animate-pulse rounded-full bg-white" />;
+}
+
+async function fetchPage(category: FeedCategory, cursor?: string | null): Promise<FeedPage> {
   const qs = new URLSearchParams({ limit: String(PAGE_SIZE) });
+
+  if (category !== "live") qs.set("cat", category);
 
   if (cursor) qs.set("cursor", cursor);
 
@@ -215,11 +254,40 @@ export function Feed({
 
   const buying = useRef(new Set<string>());
 
+  const [category, setCategory] = useState<FeedCategory>("live");
+
+  const [categoryMenu, setCategoryMenu] = useState(false);
+
+  // Remember the viewer's category in this browser
+  useEffect(() => {
+    const stored = storedCategory();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate browser-only preference
+    if (stored) setCategory(stored);
+  }, []);
+
+  const pickCategory = useCallback(
+    (next: FeedCategory) => {
+      setCategoryMenu(false);
+      if (next === category) return;
+      storeCategory(next);
+      setCategory(next);
+      setStatus("loading");
+      setVideos([]);
+      setCursor(null);
+      setIncoming([]);
+      setActive(0);
+      scrollRef.current?.scrollTo({ top: 0 });
+    },
+    [category],
+  );
+
   // ---------------------------------------------------------------- data
 
   useEffect(() => {
-    fetchPage()
+    const ignore = new AbortController(); // the viewer switched category meanwhile
+    fetchPage(category)
       .then((p) => {
+        if (ignore.signal.aborted) return;
         setVideos(p.videos);
 
         setCursor(p.nextCursor);
@@ -227,8 +295,11 @@ export function Feed({
         setStatus("ready");
       })
 
-      .catch(() => setStatus("error"));
-  }, [address]);
+      .catch(() => {
+        if (!ignore.signal.aborted) setStatus("error");
+      });
+    return () => ignore.abort();
+  }, [address, category]);
 
   // The worker renders new reels in the background: surface them as a pill
 
@@ -238,7 +309,7 @@ export function Feed({
     if (status !== "ready") return;
 
     const timer = setInterval(async () => {
-      const latest = await fetchPage().catch(() => null);
+      const latest = await fetchPage(category).catch(() => null);
 
       if (!latest) return;
 
@@ -255,7 +326,7 @@ export function Feed({
     }, POLL_MS);
 
     return () => clearInterval(timer);
-  }, [status]);
+  }, [status, category]);
 
   const loadMore = useCallback(async () => {
     if (!cursor || loadingMore) return;
@@ -263,7 +334,7 @@ export function Feed({
     setLoadingMore(true);
 
     try {
-      const p = await fetchPage(cursor);
+      const p = await fetchPage(category, cursor);
 
       setVideos((v) => [
         ...v,
@@ -276,7 +347,7 @@ export function Feed({
     } finally {
       setLoadingMore(false);
     }
-  }, [cursor, loadingMore, toast]);
+  }, [category, cursor, loadingMore, toast]);
 
   const loadMoreRef = useRef(loadMore);
 
@@ -605,7 +676,7 @@ export function Feed({
               className="secondary-button mt-4"
               onClick={() => {
                 setStatus("loading");
-                fetchPage()
+                fetchPage(category)
                   .then((p) => {
                     setVideos(p.videos);
                     setCursor(p.nextCursor);
@@ -620,11 +691,15 @@ export function Feed({
         )}
 
         {status === "ready" && videos.length === 0 && (
-          <EmptyState
-            title="Your feed starts here"
+          category === "live" ? (
+            <EmptyState
+              title="Your feed starts here"
 
-            body="Tap the + button below to post your first video."
-          />
+              body="Tap the + button below to post your first video."
+            />
+          ) : (
+            <EmptyState title={`Nothing in ${CATEGORIES[category].label.toLowerCase()} yet`} body={CATEGORIES[category].empty} />
+          )
         )}
 
         {videos.map((v, i) => (
@@ -670,10 +745,44 @@ export function Feed({
 
       {screen === "home" && (
         <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-4 pt-3 sm:pt-12">
-          <span className="pointer-events-auto flex items-center gap-1 rounded-full bg-dump px-2 py-0.5 text-[10px] font-black">
-            <span className="size-1.5 animate-pulse rounded-full bg-white" />{" "}
-            LIVE
-          </span>
+          <div className="pointer-events-auto relative">
+            <button
+              onClick={() => setCategoryMenu((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={categoryMenu}
+              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-black ${CATEGORIES[category].className}`}
+            >
+              <CategoryIcon category={category} />
+              {CATEGORIES[category].label}
+              <ChevronDown className="size-3" strokeWidth={3} />
+            </button>
+
+            <AnimatePresence>
+              {categoryMenu && (
+                <motion.div
+                  role="menu"
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className="absolute left-0 top-full mt-2 flex w-32 flex-col gap-1 rounded-2xl bg-black/80 p-1.5 backdrop-blur"
+                >
+                  {FEED_CATEGORIES.map((c) => (
+                    <button
+                      key={c}
+                      role="menuitem"
+                      onClick={() => pickCategory(c)}
+                      className={`flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-black ${
+                        c === category ? CATEGORIES[c].className : "text-white/80 hover:bg-white/10"
+                      }`}
+                    >
+                      <CategoryIcon category={c} />
+                      {CATEGORIES[c].label}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           <div className="flex gap-4 text-[15px] font-bold text-shadow">
             <button

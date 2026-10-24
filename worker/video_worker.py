@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AlphaScroll — Zero-Cost Autonomous Video Worker
+Scrolla — Zero-Cost Autonomous Video Worker
 ================================================
 
 Two formats (picked per run, see --format / AVATAR_RATIO):
@@ -134,7 +134,7 @@ DEX_CHAIN = os.getenv("DEX_CHAIN", "monad")
 DEX_QUERIES = _csv_env("DEX_QUERIES", "nad,nad-fun,WMON monad,monad nad,chog")
 DEX_PICK = os.getenv("DEX_PICK", "live")  # live | trending | volume | gainers | losers | whales | new | mix
 DEX_PICKS = ("live", "trending", "volume", "gainers", "losers", "whales", "new")
-WHALE_MIN_USD = float(os.getenv("WHALE_MIN_USD", "500"))  # smallest single buy a whales reel is about
+WHALE_MIN_USD = float(os.getenv("WHALE_MIN_USD", "50"))  # smallest single buy a whales reel is about
 WHALE_SHORTLIST = 8  # most active pairs whose trades are checked (GeckoTerminal: ~30 req/min)
 DEX_MIN_LIQUIDITY = float(os.getenv("DEX_MIN_LIQUIDITY", "5000"))
 DEX_MIN_VOLUME = float(os.getenv("DEX_MIN_VOLUME", "500"))
@@ -262,7 +262,7 @@ def _app_trades_query(sql: str, minutes: float) -> list:
             [rows] = cloud.turso((sql, params))
             return list(rows)
         except Exception as exc:
-            log.warning("Couldn't read AlphaScroll trades from Turso: %s", exc)
+            log.warning("Couldn't read Scrolla trades from Turso: %s", exc)
             return []
     if not APP_DB_PATH.is_file():
         return []
@@ -270,12 +270,12 @@ def _app_trades_query(sql: str, minutes: float) -> list:
         with sqlite3.connect(f"file:{quote(APP_DB_PATH.as_posix(), safe='/:')}?mode=ro", uri=True) as db:
             return db.execute(sql, params).fetchall()
     except sqlite3.Error as exc:
-        log.warning("Couldn't read AlphaScroll trades from %s: %s", APP_DB_PATH, exc)
+        log.warning("Couldn't read Scrolla trades from %s: %s", APP_DB_PATH, exc)
         return []
 
 
 def recent_app_trades(minutes: float | None = None) -> dict[str, int]:
-    """AlphaScroll double-tap buys per token address (lowercase) in the last `minutes`."""
+    """Scrolla double-tap buys per token address (lowercase) in the last `minutes`."""
     return dict(_app_trades_query(
         "SELECT lower(token_address), COUNT(*) FROM trades "
         "WHERE token_address IS NOT NULL AND created_at >= ? GROUP BY 1",
@@ -284,7 +284,7 @@ def recent_app_trades(minutes: float | None = None) -> dict[str, int]:
 
 
 def app_buys_24h(token_address: str) -> tuple[int, int]:
-    """(MON in, tokens out) in wei over the last 24h of on-chain AlphaScroll buys
+    """(MON in, tokens out) in wei over the last 24h of on-chain Scrolla buys
     of one token. Amounts are TEXT (uint256), so they're summed here, not in SQL."""
     rows = _app_trades_query(
         "SELECT lower(token_address), amount_in_wei, amount_out FROM trades "
@@ -328,7 +328,7 @@ def _eth_call(to: str, data: str) -> bytes:
 
 def testnet_pool_stats(router: str, token: str) -> dict:
     """Real market stats of a setup:testnet pool: price and liquidity from the
-    router's reserves, market cap from totalSupply, volume from AlphaScroll's
+    router's reserves, market cap from totalSupply, volume from Scrolla's
     on-chain buys (the only flow into these pools), and the 24h change from the
     reserves before those buys. All amounts have 18 decimals."""
     raw = _eth_call(router, "0xa4063dbc" + token.lower().removeprefix("0x").rjust(64, "0"))  # pools(address)
@@ -357,12 +357,12 @@ def fetch_testnet_token() -> TokenData:
     deployment = load_testnet_deployment()
     if not deployment.get("tokens") or not deployment.get("router"):
         raise RuntimeError(f"no seeded tokens in {DEPLOYMENT_FILE}")
-    # Tokens people are buying in AlphaScroll right now get a fresh video first
+    # Tokens people are buying in Scrolla right now get a fresh video first
     trades = recent_app_trades()
     weights = [1 + 5 * trades.get(t["address"].lower(), 0) for t in deployment["tokens"]]
     picked = random.choices(deployment["tokens"], weights=weights)[0]
     if trades:
-        log.info("      AlphaScroll buys (last %.0f min): %s", LIVE_MINUTES,
+        log.info("      Scrolla buys (last %.0f min): %s", LIVE_MINUTES,
                  ", ".join(f"{t['symbol']} {trades.get(t['address'].lower(), 0)}" for t in deployment["tokens"]))
     stats = testnet_pool_stats(deployment["router"], picked["address"])
     log.info("      Testnet pool $%s: price %s, liq %s, vol %s, %+.1f%%", picked["symbol"],
@@ -433,7 +433,7 @@ def dex_score(pair: dict, mode: str, app_trades: dict[str, int] | None = None) -
     change = pair.get("priceChange") or {}
     if mode == "live":
         # what is trading right now: last 5 minutes dominate, the hour breaks ties,
-        # and buys made inside AlphaScroll count the most
+        # and buys made inside Scrolla count the most
         mine = (app_trades or {}).get(((pair.get("baseToken") or {}).get("address") or "").lower(), 0)
         return 3 * math.log1p(_txn_count(pair, "m5")) + math.log1p(_txn_count(pair, "h1")) + 4 * math.log1p(mine)
     if mode == "volume":
@@ -1300,13 +1300,11 @@ def pill_clip(text: str, font: str, size: int, fg: str, bg: str, pad: tuple[int,
 def header_clips(token: TokenData, hook: str, font: str, duration: float, avatar_mode: bool,
                  style: Style) -> list:
     up = token.change_24h >= 0
-    tag = pill_clip(style.label, font, 36, *style.tag_colors, pad=(18, 10)) \
-        .with_duration(duration).with_position(("center", SAFE_TOP))
     badge = pill_clip(f"${token.symbol}  {token.change_24h:+.0f}%", font, 72, "white",
                       "#18A957" if up else "#E0244F", pad=(30, 18)) \
-        .with_duration(duration).with_position(("center", SAFE_TOP + 70))
+        .with_duration(duration).with_position(("center", SAFE_TOP))
     if avatar_mode:  # captions sit between the badge and the avatar's head: no room for more
-        return [tag, badge]
+        return [badge]
     # One line only: a wrapped hook would run into the captions just below it
     words = clean_caption(hook).upper().split() or [token.symbol]
     size = 92
@@ -1319,7 +1317,7 @@ def header_clips(token: TokenData, hook: str, font: str, duration: float, avatar
             size -= 8
         else:  # still too long at a readable size: drop words from the end
             words = words[:-1]
-    hook_clip = hook_clip.with_duration(min(2.2, duration)).with_position(("center", SAFE_TOP + 270))
+    hook_clip = hook_clip.with_duration(min(2.2, duration)).with_position(("center", SAFE_TOP + 200))
     stats = TextClip(
         font=font,
         text=f"VOL {fmt_usd(token.volume_24h)}   MC {fmt_usd(token.market_cap)}",
@@ -1328,8 +1326,8 @@ def header_clips(token: TokenData, hook: str, font: str, duration: float, avatar
         stroke_color="black",
         stroke_width=5,
         margin=(10, 10),
-    ).with_duration(duration).with_position(("center", SAFE_TOP + 190))  # under the badge
-    return [tag, badge, hook_clip, stats]
+    ).with_duration(duration).with_position(("center", SAFE_TOP + 120))  # under the badge
+    return [badge, hook_clip, stats]
 
 
 def build_avatar(persona: Persona, voice: AudioFileClip, words: list[Word],
@@ -1370,7 +1368,7 @@ def render_video(
     fx = FrameFX(style, W, H, duration, beats, seed)
     background = load_motion_frames(motion, style) if motion else prepare_background(image, style)
     bg = ken_burns(background, duration, fx, avatar, local_gen.MOTION_FPS)
-    caption_y = SAFE_TOP + 190 if persona else SAFE_TOP + 440
+    caption_y = SAFE_TOP + 120 if persona else SAFE_TOP + 370
     layers = [bg, *header_clips(token, script.hook, font, duration, persona is not None, style),
               *caption_clips(words, font, duration, caption_y, style)]
     video = CompositeVideoClip(layers, size=(W, H)).with_duration(duration)
@@ -1589,7 +1587,7 @@ def run_once(source: str, fmt: str = "random", persona_key: str | None = None,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="AlphaScroll AI video worker")
+    parser = argparse.ArgumentParser(description="Scrolla AI video worker")
     parser.add_argument("--source", choices=["auto", "mixed", "testnet", "mock", "dexscreener"], default="auto",
                         help="mixed: mainnet (DexScreener) and testnet reels by MAINNET_RATIO; "
                              "auto: mixed if contracts/deployments/10143.json exists, else dexscreener")

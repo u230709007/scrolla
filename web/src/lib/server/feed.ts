@@ -218,8 +218,9 @@ export async function listVideos({
   };
 }
 
-/** Smallest single buy (USD) that makes a reel a whales reel. */
-const WHALE_MIN_USD = 100;
+/** Smallest single buy (USD) that makes a reel a whales reel. Monad memecoins
+ * are small: a $50 buy already stands out. Keep in step with the worker's WHALE_MIN_USD. */
+const WHALE_MIN_USD = 50;
 
 /** Token conditions per category, on the stats the worker recorded at render time.
  * Whales: the biggest buy in the trades window, stored in token_json. */
