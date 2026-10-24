@@ -1,0 +1,8 @@
+# AlphaScroll video worker — all free-tier / keyless tools
+groq>=0.30          # LLM script (openai/gpt-oss-120b, free tier)
+edge-tts>=7.0       # Free Azure neural TTS, no API key
+moviepy>=2.1,<3     # Render (uses FFmpeg via imageio-ffmpeg, Pillow for text — no ImageMagick)
+pillow>=10          # Image prep + fallback backgrounds
+numpy>=1.26
+requests>=2.31      # Pollinations.ai + DexScreener
+python-dotenv>=1.0  # Load .env
