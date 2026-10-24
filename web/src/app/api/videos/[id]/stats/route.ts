@@ -1,4 +1,5 @@
 import { getVideoToken } from "@/lib/server/feed";
+import { testnetStats } from "@/lib/server/testnetPool";
 import type { LiveStats, TokenInfo } from "@/lib/types";
 
 const TTL_MS = 15_000;
@@ -31,8 +32,9 @@ async function fetchLive(token: TokenInfo): Promise<LiveStats | null> {
   };
 }
 
-/** Live DexScreener stats for the video's token, falling back to the
- * snapshot the worker recorded at render time. Cached 15s per video. */
+/** Live stats for the video's token (DexScreener on mainnet, the pool itself on
+ * testnet), falling back to the snapshot the worker recorded at render time.
+ * Cached 15s per video. */
 export async function GET(_req: Request, ctx: RouteContext<"/api/videos/[id]/stats">) {
   const { id } = await ctx.params;
   const hit = cache.get(id);
@@ -41,7 +43,8 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/videos/[id]/sta
   const token = await getVideoToken(id);
   if (!token) return Response.json({ error: "Video not found" }, { status: 404 });
 
-  const stats: LiveStats = (await fetchLive(token).catch(() => null)) ?? {
+  const live = token.chain === "monad-testnet" ? testnetStats(token) : fetchLive(token);
+  const stats: LiveStats = (await live.catch(() => null)) ?? {
     priceUsd: token.priceUsd,
     change24h: token.change24h,
     volume24h: token.volume24h,

@@ -11,7 +11,8 @@ Two formats (picked per run, see --format / AVATAR_RATIO):
 Pipeline (every run):
   1. Token data   -> by default a mix of live Monad mainnet memecoins
                      (DexScreener, display only) and setup:testnet tokens
-                     (double-tap buys on testnet); or mock tokens
+                     (double-tap buys on testnet, stats read from their
+                     pools); random mock tokens only with --source mock
   2. Script       -> Groq (openai/gpt-oss-120b), strict JSON output
   3. Voice-over   -> Edge-TTS (free, keyless) + per-word timestamps
   4. Background   -> Pollinations.ai (free, keyless) 1080x1920 image
@@ -125,7 +126,10 @@ def _csv_env(name: str, default: str) -> list[str]:
 DEX_CHAIN = os.getenv("DEX_CHAIN", "monad")
 # DexScreener has no "list a chain" endpoint; these searches surface ~40 Monad memecoins
 DEX_QUERIES = _csv_env("DEX_QUERIES", "nad,nad-fun,WMON monad,monad nad,chog")
-DEX_PICK = os.getenv("DEX_PICK", "live")  # live | trending | volume | gainers | new
+DEX_PICK = os.getenv("DEX_PICK", "live")  # live | trending | volume | gainers | losers | whales | new | mix
+DEX_PICKS = ("live", "trending", "volume", "gainers", "losers", "whales", "new")
+WHALE_MIN_USD = float(os.getenv("WHALE_MIN_USD", "500"))  # smallest single buy a whales reel is about
+WHALE_SHORTLIST = 8  # most active pairs whose trades are checked (GeckoTerminal: ~30 req/min)
 DEX_MIN_LIQUIDITY = float(os.getenv("DEX_MIN_LIQUIDITY", "5000"))
 DEX_MIN_VOLUME = float(os.getenv("DEX_MIN_VOLUME", "500"))
 DEX_MAX_AGE_HOURS = float(os.getenv("DEX_MAX_AGE_HOURS", "0"))  # 0 = any age
@@ -190,6 +194,7 @@ class TokenData:
     socials: dict = field(default_factory=dict)  # DexScreener links: twitter, telegram, website...
     farcaster: dict = field(default_factory=dict)  # cashtag buzz from farcaster_buzz()
     trades: dict = field(default_factory=dict)  # last-minutes on-chain trades from recent_trades()
+    angle: str = ""  # what the script should lead with, set by the DEX_PICK mode
 
 
 MOCK_TOKENS = [
@@ -240,41 +245,111 @@ def load_testnet_deployment() -> dict:
     return data
 
 
-def recent_app_trades(minutes: float | None = None) -> dict[str, int]:
-    """AlphaScroll double-tap buys per token address (lowercase) in the last
-    `minutes`, read from the web app's database. Empty if the app never ran."""
-    since = datetime.now(timezone.utc) - timedelta(minutes=minutes or LIVE_MINUTES)
+def _app_trades_query(sql: str, minutes: float) -> list:
+    """Rows of `sql` (one `created_at >= ?` placeholder) over the web app's
+    trades table: Turso when the site is deployed, else the local SQLite file.
+    Empty if the app never ran."""
+    since = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    params = (since.isoformat(timespec="milliseconds").replace("+00:00", "Z"),)
     if cloud.TURSO_ENABLED:  # the deployed site writes its trades to Turso
         try:
-            [rows] = cloud.turso((
-                "SELECT lower(token_address), COUNT(*) FROM trades "
-                "WHERE token_address IS NOT NULL AND created_at >= ? GROUP BY 1",
-                (since.isoformat(timespec="milliseconds").replace("+00:00", "Z"),),
-            ))
-            return dict(rows)
+            [rows] = cloud.turso((sql, params))
+            return list(rows)
         except Exception as exc:
             log.warning("Couldn't read AlphaScroll trades from Turso: %s", exc)
-            return {}
+            return []
     if not APP_DB_PATH.is_file():
-        return {}
+        return []
     try:
         with sqlite3.connect(f"file:{quote(APP_DB_PATH.as_posix(), safe='/:')}?mode=ro", uri=True) as db:
-            rows = db.execute(
-                "SELECT lower(token_address), COUNT(*) FROM trades "
-                "WHERE token_address IS NOT NULL AND created_at >= ? GROUP BY 1",
-                (since.isoformat(timespec="milliseconds").replace("+00:00", "Z"),),
-            )
-            return dict(rows)
+            return db.execute(sql, params).fetchall()
     except sqlite3.Error as exc:
         log.warning("Couldn't read AlphaScroll trades from %s: %s", APP_DB_PATH, exc)
-        return {}
+        return []
+
+
+def recent_app_trades(minutes: float | None = None) -> dict[str, int]:
+    """AlphaScroll double-tap buys per token address (lowercase) in the last `minutes`."""
+    return dict(_app_trades_query(
+        "SELECT lower(token_address), COUNT(*) FROM trades "
+        "WHERE token_address IS NOT NULL AND created_at >= ? GROUP BY 1",
+        minutes or LIVE_MINUTES,
+    ))
+
+
+def app_buys_24h(token_address: str) -> tuple[int, int]:
+    """(MON in, tokens out) in wei over the last 24h of on-chain AlphaScroll buys
+    of one token. Amounts are TEXT (uint256), so they're summed here, not in SQL."""
+    rows = _app_trades_query(
+        "SELECT lower(token_address), amount_in_wei, amount_out FROM trades "
+        "WHERE mode = 'onchain' AND created_at >= ?",
+        24 * 60,
+    )
+    addr = token_address.lower()
+    mine = [r for r in rows if r[0] == addr]
+    return sum(int(r[1] or 0) for r in mine), sum(int(r[2] or 0) for r in mine)
+
+
+# Monad testnet pools have no market of their own: their MON price is scaled by
+# the real MON/USD rate, so the dollar figures move with the actual market.
+TESTNET_RPC_URL = os.getenv("TESTNET_RPC_URL", "https://testnet-rpc.monad.xyz")
+_mon_usd_cache: tuple[float, tuple[float, float]] | None = None
+
+
+def mon_usd() -> tuple[float, float]:
+    """(MON price in USD, its 24h change in %) from CoinGecko, cached 60s."""
+    global _mon_usd_cache
+    if _mon_usd_cache and time.time() - _mon_usd_cache[0] < 60:
+        return _mon_usd_cache[1]
+    resp = requests.get("https://api.coingecko.com/api/v3/simple/price",
+                        params={"ids": "monad", "vs_currencies": "usd", "include_24hr_change": "true"}, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()["monad"]
+    _mon_usd_cache = (time.time(), (float(data["usd"]), float(data.get("usd_24h_change") or 0)))
+    return _mon_usd_cache[1]
+
+
+def _eth_call(to: str, data: str) -> bytes:
+    resp = requests.post(TESTNET_RPC_URL, timeout=15, json={
+        "jsonrpc": "2.0", "id": 1, "method": "eth_call", "params": [{"to": to, "data": data}, "latest"],
+    })
+    resp.raise_for_status()
+    body = resp.json()
+    if body.get("error"):
+        raise RuntimeError(f"eth_call failed: {body['error']}")
+    return bytes.fromhex(body["result"][2:])
+
+
+def testnet_pool_stats(router: str, token: str) -> dict:
+    """Real market stats of a setup:testnet pool: price and liquidity from the
+    router's reserves, market cap from totalSupply, volume from AlphaScroll's
+    on-chain buys (the only flow into these pools), and the 24h change from the
+    reserves before those buys. All amounts have 18 decimals."""
+    raw = _eth_call(router, "0xa4063dbc" + token.lower().removeprefix("0x").rjust(64, "0"))  # pools(address)
+    reserve_mon, reserve_tok = int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:64], "big")
+    supply = int.from_bytes(_eth_call(token, "0x18160ddd"), "big")  # totalSupply()
+    if not reserve_mon or not reserve_tok:
+        raise RuntimeError(f"pool for {token} has no liquidity")
+    usd, usd_change = mon_usd()
+    price = reserve_mon / reserve_tok * usd
+    bought_in, bought_out = app_buys_24h(token)
+    # Undo the last 24h of buys: each one added MON to the pool and took tokens out
+    then_mon, then_tok = reserve_mon - bought_in, reserve_tok + bought_out
+    price_then = then_mon / then_tok * usd / (1 + usd_change / 100) if then_mon > 0 else price
+    return {
+        "price_usd": price,
+        "change_24h": round((price / price_then - 1) * 100, 2),
+        "volume_24h": round(bought_in / 1e18 * usd, 2),
+        "liquidity_usd": round(2 * reserve_mon / 1e18 * usd, 2),
+        "market_cap": round(price * supply / 1e18, 2),
+    }
 
 
 def fetch_testnet_token() -> TokenData:
     """A token deployed by setup:testnet, so double-tap buys hit a real pool.
-    Market stats stay synthetic: testnet pools have no 24h history."""
+    Its stats are read from that pool (see testnet_pool_stats)."""
     deployment = load_testnet_deployment()
-    if not deployment.get("tokens"):
+    if not deployment.get("tokens") or not deployment.get("router"):
         raise RuntimeError(f"no seeded tokens in {DEPLOYMENT_FILE}")
     # Tokens people are buying in AlphaScroll right now get a fresh video first
     trades = recent_app_trades()
@@ -283,12 +358,18 @@ def fetch_testnet_token() -> TokenData:
     if trades:
         log.info("      AlphaScroll buys (last %.0f min): %s", LIVE_MINUTES,
                  ", ".join(f"{t['symbol']} {trades.get(t['address'].lower(), 0)}" for t in deployment["tokens"]))
-    token = fetch_mock_token()
-    token.symbol, token.name = picked["symbol"], picked["name"]
-    token.chain = "monad-testnet"
-    token.token_address = picked["address"]
-    token.pair_address = deployment.get("router", token.pair_address)
-    return token
+    stats = testnet_pool_stats(deployment["router"], picked["address"])
+    log.info("      Testnet pool $%s: price %s, liq %s, vol %s, %+.1f%%", picked["symbol"],
+             f"${stats['price_usd']:.8f}", fmt_usd(stats["liquidity_usd"]), fmt_usd(stats["volume_24h"]),
+             stats["change_24h"])
+    return TokenData(
+        symbol=picked["symbol"],
+        name=picked["name"],
+        chain="monad-testnet",
+        token_address=picked["address"],
+        pair_address=deployment["router"],
+        **stats,
+    )
 
 
 DEX_API = "https://api.dexscreener.com"
@@ -353,6 +434,8 @@ def dex_score(pair: dict, mode: str, app_trades: dict[str, int] | None = None) -
         return _num(vol, "h24")
     if mode == "gainers":
         return _num(change, "h24")
+    if mode == "losers":
+        return -_num(change, "h24")
     if mode == "new":
         return float(pair.get("pairCreatedAt") or 0)
     # trending: real activity (volume + trade count) nudged by short-term momentum,
@@ -417,13 +500,29 @@ def buzz_score(buzz: dict) -> float:
     return math.log1p(buzz.get("authors", 0) * 2 + buzz.get("engagement", 0) / 10)
 
 
+_gt_last_call = 0.0
+
+
+def _gt_get(url: str) -> requests.Response:
+    """GeckoTerminal allows ~30 requests/min per IP: space calls 2.5s apart and
+    retry a 429 once after a pause, so a whales shortlist doesn't come back empty."""
+    global _gt_last_call
+    for attempt in range(2):
+        time.sleep(max(0.0, _gt_last_call + 2.5 - time.time()))
+        _gt_last_call = time.time()
+        resp = requests.get(url, timeout=15, headers={"accept": "application/json"})
+        if resp.status_code != 429 or attempt:
+            return resp
+        time.sleep(10)
+    return resp
+
+
 def recent_trades(chain: str, pool: str) -> dict:
     """Individual on-chain trades of `pool` in the last TRADES_WINDOW_MIN minutes,
     from GeckoTerminal's free API (no key, ~30 requests/min)."""
     network = GT_NETWORK.get(chain, chain)
     try:
-        resp = requests.get(f"{GT_API}/networks/{network}/pools/{pool}/trades", timeout=15,
-                            headers={"accept": "application/json"})
+        resp = _gt_get(f"{GT_API}/networks/{network}/pools/{pool}/trades")
         if resp.status_code == 404:  # e.g. nad.fun bonding-curve pairs aren't indexed
             log.info("      GeckoTerminal doesn't index pool %s", pool)
             return {}
@@ -440,11 +539,13 @@ def recent_trades(chain: str, pool: str) -> dict:
         if t.get("is_anomalous") or not t.get("block_timestamp"):
             continue
         at = datetime.fromisoformat(t["block_timestamp"].replace("Z", "+00:00"))
+        t["_at"] = at
         last = max(last, at) if last else at
         if at >= since:
             recent.append(t)
     buys = [t for t in recent if t.get("kind") == "buy"]
     buyer_counts = collections.Counter(t.get("tx_from_address") for t in buys)
+    whale = max(buys, key=lambda t: _num(t, "volume_in_usd"), default=None)
     return {
         "window_min": TRADES_WINDOW_MIN,
         "last_trade_min_ago": round((now - last).total_seconds() / 60, 1) if last else None,
@@ -452,7 +553,9 @@ def recent_trades(chain: str, pool: str) -> dict:
         "sells": len(recent) - len(buys),
         "buy_usd": round(sum(_num(t, "volume_in_usd") for t in buys), 2),
         "sell_usd": round(sum(_num(t, "volume_in_usd") for t in recent if t.get("kind") != "buy"), 2),
-        "largest_buy_usd": round(max((_num(t, "volume_in_usd") for t in buys), default=0), 2),
+        "largest_buy_usd": round(_num(whale, "volume_in_usd"), 2) if whale else 0,
+        "largest_buy_min_ago": round((now - whale["_at"]).total_seconds() / 60, 1) if whale else None,
+        "largest_buy_repeat": bool(whale) and buyer_counts[whale.get("tx_from_address")] >= 2,
         "buyers": len(buyer_counts),
         "repeat_buyers": sum(1 for n in buyer_counts.values() if n >= 2),  # wallets buying again and again
     }
@@ -486,12 +589,15 @@ def recent_pair_addresses(hours: float) -> set[str]:
         return set()
 
 
-def fetch_dexscreener_token(chain: str | None = None) -> TokenData:
-    """A live memecoin on `chain`, ranked by DEX_PICK among pairs that pass the
-    liquidity/volume/age filters. Majors and stables are skipped, tokens used
-    in the last DEX_COOLDOWN_HOURS are skipped, and the winner is drawn from
-    the top few so consecutive runs don't all cover the same coin."""
+def fetch_dexscreener_token(chain: str | None = None, pick: str | None = None) -> TokenData:
+    """A live memecoin on `chain`, ranked by `pick` (default DEX_PICK) among pairs
+    that pass the liquidity/volume/age filters. Majors and stables are skipped,
+    tokens used in the last DEX_COOLDOWN_HOURS are skipped, and the winner is
+    drawn from the top few so consecutive runs don't all cover the same coin."""
     chain = chain or DEX_CHAIN
+    pick = pick or DEX_PICK
+    if pick == "mix":
+        pick = random.choice(DEX_PICKS)
     pairs = dex_candidate_pairs(chain)
     if not pairs:
         raise RuntimeError(f"DexScreener returned no pairs for chain '{chain}'")
@@ -514,23 +620,46 @@ def fetch_dexscreener_token(chain: str | None = None) -> TokenData:
         raise RuntimeError(f"no {chain} pairs passed the filters "
                            f"(liq >= ${DEX_MIN_LIQUIDITY:,.0f}, vol >= ${DEX_MIN_VOLUME:,.0f})")
 
-    app_trades = recent_app_trades() if DEX_PICK == "live" else {}
-    ranked = sorted(best.values(), key=lambda p: dex_score(p, DEX_PICK, app_trades), reverse=True)
+    # whales: the busiest pairs are where big buys happen, so shortlist by activity
+    rank_by = "live" if pick == "whales" else pick
+    app_trades = recent_app_trades() if rank_by == "live" else {}
+    ranked = sorted(best.values(), key=lambda p: dex_score(p, rank_by, app_trades), reverse=True)
+    if pick == "losers":
+        ranked = [p for p in ranked if _num(p.get("priceChange"), "h24") < 0] or ranked
     recent = recent_pair_addresses(DEX_COOLDOWN_HOURS)
     fresh = [p for p in ranked if (p.get("pairAddress") or "").lower() not in recent] or ranked
-    top_n = fresh[:DEX_TOP_N]
+    top_n = fresh[:WHALE_SHORTLIST if pick == "whales" else DEX_TOP_N]
     # One GeckoTerminal + one Neynar call per finalist; in live/trending mode the
     # freshest on-chain trades and Farcaster buzz re-rank the shortlist
     trades = {p["pairAddress"]: recent_trades(chain, p["pairAddress"]) for p in top_n}
     buzz = {p["pairAddress"]: farcaster_buzz(p["baseToken"]["symbol"]) for p in top_n} if NEYNAR_API_KEY else {}
-    if DEX_PICK in ("live", "trending"):
-        top_n.sort(key=lambda p: dex_score(p, DEX_PICK, app_trades)
-                   + (trades_score(trades[p["pairAddress"]]) if DEX_PICK == "live" else 0)
+    angle = ""
+    if pick == "whales":
+        whales = sorted((p for p in top_n if trades[p["pairAddress"]].get("largest_buy_usd", 0) >= WHALE_MIN_USD),
+                        key=lambda p: trades[p["pairAddress"]]["largest_buy_usd"], reverse=True)
+        if whales:
+            top = whales[0]
+            tr = trades[top["pairAddress"]]
+            angle = (f"Lead with the whale: one wallet just bought {fmt_usd(tr['largest_buy_usd'])} of "
+                     f"${top['baseToken']['symbol']} in a single trade, {tr['largest_buy_min_ago']:.0f} min ago"
+                     + (", and it kept buying" if tr.get("largest_buy_repeat") else "") + ".")
+        else:
+            log.info("      No buy >= %s in the last %.0f min — falling back to live", fmt_usd(WHALE_MIN_USD),
+                     TRADES_WINDOW_MIN)
+            pick = "live"
+            top_n = top_n[:DEX_TOP_N]
+    if pick == "losers":
+        angle = ("This is one of the biggest 24h losers on Monad: cover the drop honestly. "
+                 "No buy-the-dip calls, no predictions of a bounce.")
+    if pick in ("live", "trending"):
+        top_n.sort(key=lambda p: dex_score(p, pick, app_trades)
+                   + (trades_score(trades[p["pairAddress"]]) if pick == "live" else 0)
                    + FARCASTER_WEIGHT * buzz_score(buzz.get(p["pairAddress"], {})),
                    reverse=True)
-    top = random.choices(top_n, weights=range(len(top_n), 0, -1))[0]  # rank 1 most likely
+    if pick != "whales":  # a whales pick is already made: the biggest buy is the story
+        top = random.choices(top_n, weights=range(len(top_n), 0, -1))[0]  # rank 1 most likely
     log.info("      DexScreener: %d pairs -> %d tokens passed filters, picked $%s from top %d (%s)",
-             len(pairs), len(best), top["baseToken"]["symbol"], len(top_n), DEX_PICK)
+             len(pairs), len(best), top["baseToken"]["symbol"], len(top_n), pick)
     log.info("      Trades %.0fm: %s", TRADES_WINDOW_MIN, ", ".join(
         f"${p['baseToken']['symbol']} {t.get('buys', '?')}b/{t.get('sells', '?')}s last {t.get('last_trade_min_ago', '?')}m"
         for p in top_n for t in [trades[p["pairAddress"]]]))
@@ -558,33 +687,33 @@ def fetch_dexscreener_token(chain: str | None = None) -> TokenData:
         socials=socials,
         farcaster=buzz.get(top["pairAddress"], {}),
         trades=trades.get(top["pairAddress"], {}),
+        angle=angle,
     )
 
 
-def get_token(source: str) -> TokenData:
+def get_token(source: str, pick: str | None = None) -> TokenData:
+    """Real data only: a failing source falls back to the other real one, then the
+    run is skipped. Random mock tokens only with --source mock."""
+    if source == "mock":
+        return fetch_mock_token()
     has_testnet = bool(load_testnet_deployment().get("tokens"))
     if source == "auto":
         source = "mixed" if has_testnet else "dexscreener"
     if source == "mixed":
         # Mainnet reels show the real market; testnet reels are the ones a double-tap buys
-        source = "dexscreener" if random.random() < MAINNET_RATIO else "testnet"
-        if source == "dexscreener" and has_testnet:
-            try:
-                return fetch_dexscreener_token()
-            except Exception as exc:
-                log.warning("DexScreener failed (%s) — making a testnet reel instead", exc)
-                source = "testnet"
-    if source == "testnet":
+        first = "dexscreener" if random.random() < MAINNET_RATIO else "testnet"
+        order = [first, "testnet" if first == "dexscreener" else "dexscreener"]
+    else:
+        order = [source]
+    fetchers = {"dexscreener": lambda: fetch_dexscreener_token(pick=pick), "testnet": fetch_testnet_token}
+    errors = []
+    for name in order:
         try:
-            return fetch_testnet_token()
-        except Exception as exc:
-            log.warning("Testnet tokens unavailable (%s) — falling back to mock token", exc)
-    if source == "dexscreener":
-        try:
-            return fetch_dexscreener_token()
+            return fetchers[name]()
         except Exception as exc:  # network / schema issues must not kill the daemon
-            log.warning("DexScreener failed (%s) — falling back to mock token", exc)
-    return fetch_mock_token()
+            log.warning("%s token failed: %s", name, exc)
+            errors.append(f"{name}: {exc}")
+    raise RuntimeError("no real token data, skipping this video (" + "; ".join(errors) + ")")
 
 
 def fmt_usd(value: float) -> str:
@@ -752,6 +881,8 @@ def generate_script(token: TokenData, style: Style, persona: Persona | None = No
             user_msg += f"\nMost liked cast: \"{fc['top_cast']}\""
     elif fc:
         user_msg += f"\nFarcaster, last {FARCASTER_HOURS:.0f}h: nobody is talking about ${token.symbol} yet"
+    if token.angle:
+        user_msg += f"\nAngle: {token.angle}"
     system = (SYSTEM_PROMPT.replace("{tone}", style.tone)
               .replace("{image_style}", style.image_style)
               .replace("{persona}", persona_brief(persona)))
@@ -1384,16 +1515,16 @@ def animate_background(image: Path, prompt: str, workdir: Path) -> Path | None:
 
 
 def run_once(source: str, fmt: str = "random", persona_key: str | None = None,
-             style_key: str | None = None, motion: bool | None = None) -> Path:
-    vid = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+             style_key: str | None = None, motion: bool | None = None, pick: str | None = None) -> Path:
+    vid =datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
     workdir = OUTPUT_DIR / "work" / vid
     workdir.mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "videos").mkdir(parents=True, exist_ok=True)
     (OUTPUT_DIR / "thumbs").mkdir(parents=True, exist_ok=True)
 
     t0 = time.time()
-    token = get_token(source)
-    if style_key in MOCK_CHANGES and not token.dex_url:  # synthetic stats: make them fit the forced mood
+    token = get_token(source, pick)
+    if style_key in MOCK_CHANGES and source == "mock":  # synthetic stats: make them fit the forced mood
         token.change_24h = mock_change(style_key)
     log.info("[1/5] Token: $%s %+.1f%% vol %s", token.symbol, token.change_24h, fmt_usd(token.volume_24h))
 
@@ -1445,6 +1576,9 @@ def main() -> None:
     parser.add_argument("--source", choices=["auto", "mixed", "testnet", "mock", "dexscreener"], default="auto",
                         help="mixed: mainnet (DexScreener) and testnet reels by MAINNET_RATIO; "
                              "auto: mixed if contracts/deployments/10143.json exists, else dexscreener")
+    parser.add_argument("--pick", choices=[*DEX_PICKS, "mix"], default=None,
+                        help="which mainnet token gets the reel (default: DEX_PICK). losers: biggest 24h drops; "
+                             "whales: biggest single buy in the last TRADES_WINDOW_MIN; mix: a random mode per run")
     parser.add_argument("--format", choices=["random", "classic", "avatar"], default="random",
                         help="random mixes both using AVATAR_RATIO")
     parser.add_argument("--persona", choices=[p.key for p in PERSONAS],
@@ -1466,14 +1600,14 @@ def main() -> None:
         publish_existing()
         return
     if not args.loop:
-        run_once(args.source, args.format, args.persona, args.style, args.motion)
+        run_once(args.source, args.format, args.persona, args.style, args.motion, args.pick)
         return
     log.info("Daemon started — one video every %.0f min (Ctrl+C to stop)", args.interval)
     while True:
         started = time.time()
         wait = args.interval * 60
         try:
-            run_once(args.source, args.format, args.persona, args.style, args.motion)
+            run_once(args.source, args.format, args.persona, args.style, args.motion, args.pick)
         except Exception:
             log.exception("Run failed; retrying next cycle")
             wait = max(wait, 30)  # don't hammer the APIs in a tight loop when --interval 0

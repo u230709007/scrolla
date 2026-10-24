@@ -65,6 +65,12 @@ export function StatsSheet({
         ))}
       </dl>
 
+      {t.chain === "monad-testnet" && (
+        <p className="mt-2 text-[11px] text-white/40">
+          Testnet pool price × real MON/USD · volume = AlphaScroll buys
+        </p>
+      )}
+
       <div className="mt-4 space-y-2 text-sm">
         {t.tokenAddress && (
           <button
