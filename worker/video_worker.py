@@ -83,6 +83,12 @@ from styles import SR, STYLES, FrameFX, Style, grade, make_music, mix_tracks, pi
 # --------------------------------------------------------------------------- #
 
 W, H = 1080, 1920
+# The feed's UI covers the frame above SAFE_TOP (status bar / Dynamic Island,
+# For You tabs, "new reel" pill; short screens also crop the top via
+# object-cover) and below SAFE_BOTTOM (handle, description, token chips), so
+# every burned-in label and the avatar's face live between the two.
+SAFE_TOP, SAFE_BOTTOM = 380, 1050
+AVATAR_TOP = 560  # sprite top: eyes ~920, mouth ~1070, the lower body fades out behind the UI
 FPS = int(os.getenv("VIDEO_FPS", "24"))  # per-frame Python effects dominate render time; 24 is ~20% faster than 30
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -1181,6 +1187,19 @@ def ken_burns(
     frames = frame if isinstance(frame, list) else [Image.fromarray(frame)]
     fw, fh = frames[0].size
     n = len(frames)
+    faded: dict[int, Image.Image] = {}  # sprite -> copy whose lower body fades out
+
+    def fade_body(sprite: Image.Image) -> Image.Image:
+        """The sprite is cut flat below the belly, which now sits behind the
+        feed's caption UI: fade its bottom 30% out instead of showing the cut."""
+        if id(sprite) not in faded:
+            start = int(sprite.height * 0.7)
+            ramp = np.ones(sprite.height, dtype=np.float32)
+            ramp[start:] = np.linspace(1, 0, sprite.height - start)
+            arr = np.asarray(sprite).copy()
+            arr[..., 3] = (arr[..., 3] * ramp[:, None]).astype(np.uint8)
+            faded[id(sprite)] = Image.fromarray(arr)
+        return faded[id(sprite)]
 
     def make_frame(t: float) -> np.ndarray:
         k = int(t * motion_fps) % max(1, 2 * n - 2)
@@ -1193,9 +1212,9 @@ def ken_burns(
         crop = pil.resize((W, H), Image.BICUBIC, box=(left, top, left + cw, top + ch))
         i = int(t * FPS)
         if avatar is not None:
-            sprite = avatar.frame(i)
+            sprite = fade_body(avatar.frame(i))
             x = (W - sprite.width) // 2
-            y = H - sprite.height + 150 + avatar.offset_y(i)
+            y = AVATAR_TOP + avatar.offset_y(i)
             crop.paste(sprite, (x, y), sprite)
         return fx.apply(crop, t, i)
 
@@ -1282,10 +1301,12 @@ def header_clips(token: TokenData, hook: str, font: str, duration: float, avatar
                  style: Style) -> list:
     up = token.change_24h >= 0
     tag = pill_clip(style.label, font, 36, *style.tag_colors, pad=(18, 10)) \
-        .with_duration(duration).with_position(("center", 112))
+        .with_duration(duration).with_position(("center", SAFE_TOP))
     badge = pill_clip(f"${token.symbol}  {token.change_24h:+.0f}%", font, 72, "white",
                       "#18A957" if up else "#E0244F", pad=(30, 18)) \
-        .with_duration(duration).with_position(("center", 185))
+        .with_duration(duration).with_position(("center", SAFE_TOP + 70))
+    if avatar_mode:  # captions sit between the badge and the avatar's head: no room for more
+        return [tag, badge]
     hook_clip = TextClip(
         font=font,
         text=clean_caption(hook).upper(),
@@ -1297,7 +1318,7 @@ def header_clips(token: TokenData, hook: str, font: str, duration: float, avatar
         size=(W - 140, None),
         text_align="center",
         margin=(20, 20),
-    ).with_duration(min(2.2, duration)).with_position(("center", 310))
+    ).with_duration(min(2.2, duration)).with_position(("center", SAFE_TOP + 270))
     stats = TextClip(
         font=font,
         text=f"VOL {fmt_usd(token.volume_24h)}   MC {fmt_usd(token.market_cap)}",
@@ -1306,12 +1327,7 @@ def header_clips(token: TokenData, hook: str, font: str, duration: float, avatar
         stroke_color="black",
         stroke_width=5,
         margin=(10, 10),
-    )
-    if avatar_mode:  # the avatar owns the bottom of the frame; stats replace the hook
-        hook_end = min(2.2, duration)
-        stats = stats.with_start(hook_end).with_end(duration).with_position(("center", 310))
-    else:
-        stats = stats.with_duration(duration).with_position(("center", H - 260))
+    ).with_duration(duration).with_position(("center", SAFE_TOP + 190))  # under the badge
     return [tag, badge, hook_clip, stats]
 
 
@@ -1322,7 +1338,7 @@ def build_avatar(persona: Persona, voice: AudioFileClip, words: list[Word],
     env = loudness_envelope(voice.to_soundarray(fps=sr), sr, FPS, n_frames)
     if not env.any():  # silent fallback track -> animate from word timings
         env = envelope_from_words(words, FPS, n_frames)
-    return AvatarAnimator(persona, width=int(W * 0.78), env=env, fps=FPS,
+    return AvatarAnimator(persona, width=int(W * 0.6), env=env, fps=FPS,
                           seed=random.randint(0, 10**6), mood=style.avatar_mood, energy=style.energy)
 
 
@@ -1353,7 +1369,7 @@ def render_video(
     fx = FrameFX(style, W, H, duration, beats, seed)
     background = load_motion_frames(motion, style) if motion else prepare_background(image, style)
     bg = ken_burns(background, duration, fx, avatar, local_gen.MOTION_FPS)
-    caption_y = int(H * 0.36) if persona else int(H * 0.62)
+    caption_y = SAFE_TOP + 190 if persona else SAFE_TOP + 440
     layers = [bg, *header_clips(token, script.hook, font, duration, persona is not None, style),
               *caption_clips(words, font, duration, caption_y, style)]
     video = CompositeVideoClip(layers, size=(W, H)).with_duration(duration)
