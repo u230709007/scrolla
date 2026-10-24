@@ -486,7 +486,9 @@ export function Feed({
             toast.update(id, {
               kind: "error",
               title: `Couldn't buy ${sym}`,
-              body: msg.slice(0, 140),
+              body: /INSUFFICIENT_LIQUIDITY/.test(msg)
+                ? `The ${sym} pool doesn't have enough liquidity right now.`
+                : msg.slice(0, 140),
             });
           }
         } else {

@@ -38,7 +38,8 @@ export const KNOWN_TESTNET_TOKENS: Record<string, Address> = Object.fromEntries(
  * network (e.g. a mainnet DexScreener token while the app runs on testnet). */
 export function tradableAddress(token: { chain?: string; tokenAddress?: string | null; symbol?: string }): Address | null {
   if (token.tokenAddress && /^0x[a-fA-F0-9]{40}$/.test(token.tokenAddress)) {
-    return token.tokenAddress as Address;
+    // An address on another network has no pool here, whatever its symbol.
+    return token.chain === TOKEN_CHAIN ? (token.tokenAddress as Address) : null;
   }
   const sym = (token.symbol ?? "").toUpperCase().replace("$", "");
   if (sym && KNOWN_TESTNET_TOKENS[sym]) {
