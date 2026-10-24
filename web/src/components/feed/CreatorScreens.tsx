@@ -146,6 +146,20 @@ export function CreatorProfile({
   const [videos, setVideos] = useState<FeedVideo[]>([]);
   const [tab, setTab] = useState<"videos" | "saved">("videos");
   const [status, setStatus] = useState("loading");
+  const [stats, setStats] = useState({ followers: 0, following: 0 });
+  useEffect(() => {
+    if (!address) return;
+    let live = true;
+    fetch("/api/users/stats", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (live && d) setStats(d);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [address, revision]);
   useEffect(() => {
     let live = true;
     fetch("/api/uploads", { cache: "no-store" })
@@ -200,12 +214,12 @@ export function CreatorProfile({
         </p>
         <div className="mx-auto my-5 flex max-w-64 justify-around">
           <div>
-            <b className="text-lg">{videos.length}</b>
-            <p className="text-[11px] text-white/45">Video</p>
+            <b className="text-lg">{stats.followers}</b>
+            <p className="text-[11px] text-white/45">Takipçi</p>
           </div>
           <div>
-            <b className="text-lg">{saved.length}</b>
-            <p className="text-[11px] text-white/45">Kaydedilen</p>
+            <b className="text-lg">{stats.following}</b>
+            <p className="text-[11px] text-white/45">Takip</p>
           </div>
         </div>
         <div className="flex justify-center gap-2">

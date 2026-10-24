@@ -80,7 +80,7 @@ from styles import SR, STYLES, FrameFX, Style, grade, make_music, mix_tracks, pi
 # --------------------------------------------------------------------------- #
 
 W, H = 1080, 1920
-FPS = 30
+FPS = int(os.getenv("VIDEO_FPS", "24"))  # per-frame Python effects dominate render time; 24 is ~20% faster than 30
 BASE_DIR = Path(__file__).resolve().parent
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
@@ -99,7 +99,7 @@ TTS_VOICE = os.getenv("TTS_VOICE", "en-US-ChristopherNeural")
 TTS_RATE = os.getenv("TTS_RATE", "+12%")
 OUTPUT_DIR = BASE_DIR / os.getenv("OUTPUT_DIR", "output")
 DB_PATH = BASE_DIR / os.getenv("DB_PATH", "output/alphascroll.db")
-INTERVAL_MINUTES = float(os.getenv("INTERVAL_MINUTES", "15"))
+INTERVAL_MINUTES = float(os.getenv("INTERVAL_MINUTES", "2"))
 AVATAR_RATIO = float(os.getenv("AVATAR_RATIO", "0.5"))  # share of avatar videos in random mode
 MAINNET_RATIO = float(os.getenv("MAINNET_RATIO", "0.5"))  # share of mainnet reels in --source mixed
 # auto: SDXL-Lightning on the local GPU when CUDA is available, else Pollinations
@@ -198,15 +198,15 @@ MOCK_TOKENS = [
 ]
 
 
-MOCK_CHANGES = {"hype": (60, 900), "steady": (3, 60), "noir": (-25, -3), "arabesk": (-80, -25)}
+MOCK_CHANGES = {"hype": (10, 900), "steady": (1, 10), "arabesk": (-80, -1)}
 
 
 def mock_change(style_key: str | None = None) -> float:
-    """Pumps, slow climbs, small dips and crashes, so every video style shows up."""
+    """Pumps, slow climbs and crashes, so every video style shows up."""
     if style_key in MOCK_CHANGES:
         lo, hi = MOCK_CHANGES[style_key]
     else:
-        lo, hi = random.choices(list(MOCK_CHANGES.values()), weights=[40, 20, 20, 20])[0]
+        lo, hi = random.choices(list(MOCK_CHANGES.values()), weights=[45, 15, 40])[0]
     return round(random.uniform(lo, hi), 1)
 
 
@@ -1219,10 +1219,10 @@ def render_video(
         codec="libx264",
         audio_codec="aac",
         audio_bitrate="192k",
-        preset="medium",
+        preset=os.getenv("X264_PRESET", "veryfast"),
         threads=os.cpu_count() or 2,
         # CRF for quality, capped so grain/rain can't balloon the file past a phone-friendly bitrate
-        ffmpeg_params=["-pix_fmt", "yuv420p", "-movflags", "+faststart", "-crf", "20",
+        ffmpeg_params=["-pix_fmt", "yuv420p", "-movflags", "+faststart", "-crf", "22",
                        "-maxrate", "9M", "-bufsize", "18M", "-profile:v", "high"],
         temp_audiofile=str(out_path.with_suffix(".tmp.m4a")),
         logger=None,

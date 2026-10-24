@@ -5,14 +5,14 @@ AlphaScroll — video styles (the mood follows the chart)
 Every video gets a style picked from the token's 24h move, and the style
 drives everything that makes two videos feel different:
 
-  hype     (+60% and up)  MOON MODE     screaming narrator, saturated neon,
+  hype     (+10% and up)  MOON MODE     funny, cheerful narrator, saturated neon,
                                         beat-synced zoom punches, sparks, trap beat
-  steady   (0 .. +60%)    ALPHA BRIEF   calm insider, golden grade, slow pan,
+  steady   (0 .. +10%)    ALPHA BRIEF   calm insider, golden grade, slow pan,
                                         bokeh, lo-fi chords
-  noir     (-25% .. 0)    CRYPTO NOIR   detective monologue, black & white,
+  noir     (manual only)  CRYPTO NOIR   detective monologue, black & white,
                                         letterbox, flicker, heartbeat + drone
-  arabesk  (below -25%)   ARABESK       heartbroken lament, cold desaturated
-                                        grade, rain, film grain, Hicaz-makam
+  arabesk  (below 0%)     ARABESK       sad-funny lament with a crying mascot, cold
+                                        desaturated grade, rain, film grain, Hicaz-makam
                                         baglama tremolo + strings + darbuka
 
 Music is synthesised with numpy (no samples, no downloads, zero cost) and
@@ -80,11 +80,13 @@ class Style:
 STYLES = {
     "hype": Style(
         key="hype", label="MOON MODE",
-        tone=("Mood: MOON MODE. The chart is ripping. Be explosive and breathless: short punchy "
-              "sentences, exclamations, hype slang. Open with a shocking hook and end with a call "
-              "to action like \"double tap to ape in\"."),
-        image_style=("explosive energy, neon green and electric purple, rocket launch, fireworks, "
-                     "golden coins flying, motion streaks, hyper saturated, dynamic low angle"),
+        tone=("Mood: MOON MODE. The chart is ripping and it is FUNNY. Be cheerful, goofy and "
+              "breathless: short punchy sentences, exclamations, hype slang, playful jokes (the "
+              "rocket needs more snacks, the moon is getting crowded, your landlord is shaking). "
+              "Open with a shocking hook and end with a call to action like \"double tap to ape in\"."),
+        image_style=("to the moon, funny cartoon mascot riding a rocket to a smiling moon, happy "
+                     "party mood, confetti, neon green and electric purple, fireworks, golden coins "
+                     "flying, hyper saturated, dynamic low angle"),
         opener="Stop scrolling right now!", persona_opener="Yo degens, {name} here and I am losing it!",
         template=("{opener} {name} just exploded {change} percent in twenty four hours on Monad! "
                   "{volume} in volume and the candles are still green! This is not a drill. "
@@ -144,12 +146,14 @@ STYLES = {
     ),
     "arabesk": Style(
         key="arabesk", label="ARABESK MODE",
-        tone=("Mood: ARABESK. Write it like a heartbroken Turkish arabesk song turned into a monologue: "
-              "melancholic, poetic, dramatic self-pity about fate, betrayal and the cruel world (the "
-              "chart broke your heart, the candles are red like your tears). Slow, sorrowful sentences. "
+        tone=("Mood: ARABESK. Write it like a heartbroken Turkish arabesk song turned into a monologue, "
+              "sad but FUNNY: melancholic, poetic, over-the-top dramatic self-pity about fate, betrayal "
+              "and the cruel world (the chart broke your heart, the candles are red like your tears, "
+              "even the wallet is crying). Slow, sorrowful sentences with a deadpan joke or two. "
               "Write in English; the single Turkish word \"kader\" (fate) may appear once. End with a tiny glimmer of hope and a call to action "
               "like \"double tap if your heart still believes\"."),
-        image_style=("melancholic, rainy night window, lonely sad mascot with a tear, red candlestick "
+        image_style=("melancholic, rainy night window, funny crying cartoon mascot with big streaming "
+                     "tears, lonely sad mascot with a tear, red candlestick "
                      "chart crashing in the background, blurred Bosphorus city lights, desaturated "
                      "teal and amber, nostalgic 35mm film still"),
         opener="Sit down, my friend.", persona_opener="{name} here, and my heart is heavy tonight.",
@@ -172,12 +176,10 @@ STYLES = {
 def pick_style(change_24h: float, key: str | None = None) -> Style:
     if key and key != "auto":
         return STYLES[key]
-    if change_24h >= 60:
+    if change_24h >= 10:
         return STYLES["hype"]
     if change_24h >= 0:
         return STYLES["steady"]
-    if change_24h > -25:
-        return STYLES["noir"]
     return STYLES["arabesk"]
 
 

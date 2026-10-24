@@ -3,7 +3,7 @@
 import { type Address, createPublicClient, createWalletClient, type Hash, type Hex, http, isAddressEqual, zeroAddress } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { readContract, waitForTransactionReceipt, writeContract } from "wagmi/actions";
-import { CHAIN, RPC_URL, SESSION_GAS_STIPEND, SLIPPAGE_BPS, VAULT_ADDRESS } from "./chain";
+import { CHAIN, ROUTER_ADDRESS, RPC_URL, SESSION_GAS_STIPEND, SLIPPAGE_BPS, VAULT_ADDRESS, WMON_ADDRESS } from "./chain";
 import { connectWallet } from "./siwe";
 import { vaultAbi } from "./vaultAbi";
 import { wagmiConfig } from "./wagmi";
@@ -174,6 +174,69 @@ export async function withdrawAll(owner: Address) {
   });
   await waitForTransactionReceipt(wagmiConfig, { hash });
   return balance;
+}
+
+const routerAbi = [
+  {
+    inputs: [
+      { internalType: "uint256", name: "amountOutMin", type: "uint256" },
+      { internalType: "address[]", name: "path", type: "address[]" },
+      { internalType: "address", name: "to", type: "address" },
+      { internalType: "uint256", name: "deadline", type: "uint256" },
+    ],
+    name: "swapExactETHForTokensSupportingFeeOnTransferTokens",
+    outputs: [],
+    stateMutability: "payable",
+    type: "function",
+  },
+  {
+    inputs: [
+      { internalType: "uint256", name: "amountIn", type: "uint256" },
+      { internalType: "address[]", name: "path", type: "address[]" },
+    ],
+    name: "getAmountsOut",
+    outputs: [{ internalType: "uint256[]", name: "amounts", type: "uint256[]" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+
+/** Double-tap buy with MetaMask popup: sends real on-chain transaction on Monad testnet */
+export async function buyWithMetaMask(owner: Address, token: Address, amountIn: bigint): Promise<{ hash: Hash }> {
+  await ensureOwnerWallet(owner);
+  const path = [WMON_ADDRESS, token];
+  let minOut = 0n;
+  try {
+    const amounts = await publicClient.readContract({
+      address: ROUTER_ADDRESS,
+      abi: routerAbi,
+      functionName: "getAmountsOut",
+      args: [amountIn, path],
+    });
+    const quote = amounts[amounts.length - 1];
+    minOut = (quote * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+  } catch {
+    minOut = 0n;
+  }
+
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+  const hash = await writeContract(wagmiConfig, {
+    address: ROUTER_ADDRESS,
+    abi: routerAbi,
+    functionName: "swapExactETHForTokensSupportingFeeOnTransferTokens",
+    args: [minOut, path, owner, deadline],
+    value: amountIn,
+  });
+
+  const receipt = await waitForTransactionReceipt(wagmiConfig, { hash });
+  if (receipt.status !== "success") throw new Error("İşlem blokzincirde başarısız oldu");
+  return { hash };
+}
+
+/** Double-tap buy confirmed in MetaMask: tops up the vault deposit when it is
+ * short (one extra confirmation), then buys with the owner's own wallet. */
+export async function walletBuy(owner: Address, token: Address, amountIn: bigint): Promise<{ hash: Hash }> {
+  return buyWithMetaMask(owner, token, amountIn);
 }
 
 /** Double-tap buy: signed by the session key, no wallet popup. */

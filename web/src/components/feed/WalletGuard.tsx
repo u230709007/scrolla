@@ -14,8 +14,9 @@ import { useToast } from "../Toast";
 export function WalletGuard({ address }: { address: string | null }) {
   const toast = useToast();
   const conn = useConnection();
+  const [dismissed, setDismissed] = useState(false);
   const [busy, setBusy] = useState(false);
-  if (!address || !conn.isConnected || !conn.address) return null;
+  if (dismissed || !address || !conn.isConnected || !conn.address) return null;
 
   const otherAccount = !isAddressEqual(conn.address, address as Address);
   const wrongChain = conn.chainId !== CHAIN.id;
@@ -27,7 +28,7 @@ export function WalletGuard({ address }: { address: string | null }) {
       if (otherAccount) await signOutEverywhere();
       else await ensureChain();
     } catch (err) {
-      toast.show({ kind: "error", title: "Network switch failed", body: err instanceof Error ? err.message.slice(0, 140) : undefined });
+      toast.show({ kind: "error", title: "Ağ değiştirilemedi", body: err instanceof Error ? err.message.slice(0, 140) : undefined });
     } finally {
       setBusy(false);
     }
@@ -38,12 +39,15 @@ export function WalletGuard({ address }: { address: string | null }) {
       <AlertTriangle className="size-5 shrink-0" />
       <p className="min-w-0 flex-1 text-xs font-semibold leading-snug">
         {otherAccount
-          ? `Wallet switched to ${shortAddr(conn.address)}. You're signed in as ${shortAddr(address)}.`
-          : `Your wallet is on another network. Trades need ${CHAIN.name}.`}
+          ? `Cüzdan ${shortAddr(conn.address)} hesabına geçti.`
+          : `İşlemler için ${CHAIN.name} ağı gerekiyor.`}
       </p>
       <button onClick={fix} disabled={busy} className="flex shrink-0 items-center gap-1 rounded-xl bg-ink px-3 py-2 text-xs font-bold text-white disabled:opacity-60">
         {busy && <Loader2 className="size-3 animate-spin" />}
-        {otherAccount ? "Sign in again" : "Switch network"}
+        {otherAccount ? "Yeniden bağlan" : "Ağı değiştir"}
+      </button>
+      <button onClick={() => setDismissed(true)} className="p-1 text-ink/70 hover:text-ink text-sm">
+        ✕
       </button>
     </div>
   );

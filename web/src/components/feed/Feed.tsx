@@ -23,7 +23,7 @@ import type { FeedPage, FeedVideo } from "@/lib/types";
 
 import { explorerTx, isForeignToken, tradableAddress } from "@/lib/web3/chain";
 
-import { type LocalSession, loadSession, quickBuy } from "@/lib/web3/trading";
+import { type LocalSession, buyWithMetaMask, loadSession, quickBuy } from "@/lib/web3/trading";
 
 import { useToast } from "../Toast";
 
@@ -84,45 +84,87 @@ export function Feed({
 
   const [profileRevision, setProfileRevision] = useState(0);
 
-  useEffect(() => {
+  const validSaved = (value: unknown): FeedVideo[] =>
+    Array.isArray(value)
+      ? value.filter(
+          (v) =>
+            v &&
+            typeof v.id === "string" &&
+            typeof v.videoUrl === "string" &&
+            v.token,
+        )
+      : [];
 
+  // Signed in: saved videos live on the account. Guest: this browser only.
+  useEffect(() => {
+    let live = true;
+    let local: FeedVideo[] = [];
     try {
-      const value = JSON.parse(
-        localStorage.getItem("alphascroll.saved") || "[]",
+      local = validSaved(
+        JSON.parse(localStorage.getItem("alphascroll.saved") || "[]"),
       );
-      if (Array.isArray(value))
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate browser-only saved collection
-        setSaved(
-          value.filter(
-            (v) =>
-              v &&
-              typeof v.id === "string" &&
-              typeof v.videoUrl === "string" &&
-              v.token,
-          ),
-        );
     } catch {
       /* unavailable storage */
     }
-  }, []);
+    if (!address) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate browser-only saved collection
+      setSaved(local);
+      return;
+    }
+    (async () => {
+      // Move anything saved as a guest into the account once.
+      if (local.length) {
+        await fetch("/api/saved", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videos: local, saved: true }),
+        }).catch(() => null);
+        try {
+          localStorage.removeItem("alphascroll.saved");
+        } catch {
+          /* ignore */
+        }
+      }
+      const res = await fetch("/api/saved", { cache: "no-store" }).catch(() => null);
+      if (!live || !res?.ok) return;
+      setSaved(validSaved((await res.json()).videos));
+    })();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]);
 
   function toggleSave(video: FeedVideo) {
-    setSaved((current) => {
-      const next = current.some((v) => v.id === video.id)
-        ? current.filter((v) => v.id !== video.id)
-        : [...current, video];
+    const isSaved = saved.some((v) => v.id === video.id);
+    const next = isSaved
+      ? saved.filter((v) => v.id !== video.id)
+      : [video, ...saved];
+    setSaved(next);
 
-      try {
-        localStorage.setItem("alphascroll.saved", JSON.stringify(next));
-      } catch {
-        toast.show({
-          kind: "error",
-          title: "Kaydedilenler bu tarayıcıda saklanamadı",
+    if (address) {
+      fetch("/api/saved", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video, saved: !isSaved }),
+      })
+        .then((r) => {
+          if (!r.ok) throw Error();
+        })
+        .catch(() => {
+          setSaved(saved);
+          toast.show({ kind: "error", title: "Kaydedilemedi" });
         });
-      }
-
-      return next;
-    });
+      return;
+    }
+    try {
+      localStorage.setItem("alphascroll.saved", JSON.stringify(next));
+    } catch {
+      toast.show({
+        kind: "error",
+        title: "Kaydedilenler bu tarayıcıda saklanamadı",
+      });
+    }
   }
 
   function selectVideo(video: FeedVideo) {
@@ -386,70 +428,57 @@ export function Feed({
   );
 
   const executeBuy = useCallback(
-    async (video: FeedVideo, session: LocalSession | null) => {
+    async (video: FeedVideo) => {
       if (buying.current.has(video.id)) return;
-
       buying.current.add(video.id);
 
       const sym = `$${video.token.symbol}`;
-
       const token = tradableAddress(video.token);
 
       try {
-        if (token && session) {
-          const amount = BigInt(session.maxPerTrade);
-
+        if (token && address) {
+          const amount = parseEther("0.05");
           const id = toast.show({
             kind: "loading",
-            title: `Buying ${sym}…`,
-            body: `${formatEther(amount)} MON · no popup`,
+            title: `${sym} alınıyor…`,
+            body: `MetaMask onayı bekleniyor (${formatEther(amount)} MON)`,
           });
 
           try {
-            const { hash } = await quickBuy(session, token, amount);
-
+            const { hash } = await buyWithMetaMask(address as Address, token, amount);
             fire();
-
             toast.update(
               id,
               {
                 kind: "success",
-                title: `Aped into ${sym} 🚀`,
-                body: `${formatEther(amount)} MON`,
+                title: `${sym} başarıyla alındı! 🚀`,
+                body: `${formatEther(amount)} MON testnet işlemi tamamlandı`,
                 href: explorerTx(hash),
               },
               6000,
             );
-
             recordTrade(video, { mode: "onchain", txHash: hash });
           } catch (err) {
             const msg =
               err instanceof Error
-                ? ((err as { shortMessage?: string }).shortMessage ??
-                  err.message)
+                ? ((err as { shortMessage?: string }).shortMessage ?? err.message)
                 : String(err);
-
+            const isReject = /reject|denied|cancel/i.test(msg);
             toast.update(id, {
               kind: "error",
-              title: `${sym} buy failed`,
-              body: msg.slice(0, 140),
+              title: isReject ? "İşlem iptal edildi" : `${sym} alımı başarısız`,
+              body: isReject ? undefined : msg.slice(0, 140),
             });
           }
         } else {
-          const id = toast.show({ kind: "loading", title: `Buying ${sym}…` });
-
+          const id = toast.show({ kind: "loading", title: `${sym} alınıyor…` });
           await new Promise((r) => setTimeout(r, 450));
-
           fire();
-
           toast.update(id, {
             kind: "success",
-
-            title: `Demo buy: ${formatEther(DEMO_AMOUNT)} MON of ${sym}`,
-
-            body: "Simulated: no on-chain trade was made.",
+            title: `Demo alım: ${formatEther(DEMO_AMOUNT)} MON of ${sym}`,
+            body: "Simüle edildi: bu token testnet havuzunda bulunamadı.",
           });
-
           recordTrade(video, {
             mode: "demo",
             amountInWei: DEMO_AMOUNT.toString(),
@@ -459,24 +488,19 @@ export function Feed({
         buying.current.delete(video.id);
       }
     },
-
-    [fire, recordTrade, toast],
+    [address, fire, recordTrade, toast],
   );
 
-  /** Double-tap: like + buy. Needs sign-in; on-chain buys need a session key once. */
-
+  /** Double-tap: like + real on-chain testnet buy with MetaMask confirmation */
   const onDoubleTap = useCallback(
     (video: FeedVideo) => {
       if (!address) {
-        toast.show({ kind: "info", title: "Connect your wallet to ape in" });
-
+        toast.show({ kind: "info", title: "İşlem yapmak için cüzdanınızı bağlayın" });
         onRequestLogin();
-
         return;
       }
 
       like(video, true);
-
       if (video.source === "upload") return;
 
       if (isForeignToken(video.token)) {
@@ -485,27 +509,11 @@ export function Feed({
           title: `$${video.token.symbol} mainnet'te`,
           body: "Çift tıklayınca alım şimdilik sadece TESTNET videolarında yapılıyor.",
         });
-
         return;
       }
 
-      if (tradableAddress(video.token)) {
-        const session = loadSession(address as Address);
-
-        if (!session) {
-          pendingBuy.current = video;
-
-          setSheet("session");
-
-          return;
-        }
-
-        executeBuy(video, session);
-      } else {
-        executeBuy(video, null);
-      }
+      executeBuy(video);
     },
-
     [address, executeBuy, like, onRequestLogin, toast],
   );
 
@@ -840,7 +848,7 @@ export function Feed({
 
           pendingBuy.current = null;
 
-          if (video) executeBuy(video, session);
+          if (video) executeBuy(video);
         }}
       />
 

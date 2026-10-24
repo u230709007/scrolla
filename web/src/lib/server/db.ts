@@ -76,6 +76,13 @@ CREATE TABLE IF NOT EXISTS shares (
   created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_shares_to ON shares(to_address, id DESC);
+CREATE TABLE IF NOT EXISTS saved_videos (
+  address    TEXT NOT NULL,
+  video_id   TEXT NOT NULL,
+  video_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (address, video_id)
+);
 `;
 
 function wrap(client: Client): Db {

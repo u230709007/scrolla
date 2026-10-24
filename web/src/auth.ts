@@ -29,6 +29,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   pages: { signIn: "/" },
   providers: [
     Credentials({
+      id: "wallet",
+      name: "Direct Wallet",
+      credentials: { address: {} },
+      async authorize(credentials) {
+        const addr = typeof credentials?.address === "string" ? credentials.address : "";
+        if (!addr || !/^0x[a-fA-F0-9]{40}$/.test(addr)) return null;
+        const address = getAddress(addr);
+        await registerUser(address).catch(() => undefined);
+        return { id: address };
+      },
+    }),
+    Credentials({
       id: "siwe",
       name: "Sign-In with Ethereum",
       credentials: { message: {}, signature: {} },

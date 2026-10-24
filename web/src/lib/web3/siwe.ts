@@ -17,15 +17,14 @@ export function hasMetaMask() {
   return !!eth && (!!eth.isMetaMask || !!eth.providers?.some((p) => p.isMetaMask));
 }
 
-/** Connect MetaMask (or another injected wallet) if needed and put it on CHAIN. */
 export async function connectWallet(): Promise<Address> {
   let conn = getConnection(wagmiConfig);
   if (!conn.isConnected || !conn.address) {
     await connect(wagmiConfig, { connector: await preferredConnector(), chainId: CHAIN.id });
     conn = getConnection(wagmiConfig);
   }
-  if (!conn.address) throw new Error("No wallet account available");
-  await ensureChain();
+  if (!conn.address) throw new Error("Cüzdan hesabı bulunamadı");
+  await ensureChain().catch(() => undefined);
   return conn.address;
 }
 
@@ -41,27 +40,29 @@ export async function ensureChain() {
   }
 }
 
-/** Connect the wallet, sign a SIWE message, and open a NextAuth session. */
 export async function signInWithEthereum(): Promise<Address> {
   const address = await connectWallet();
-
-  const { nonce } = (await fetch("/api/auth/nonce", { cache: "no-store" }).then((r) => r.json())) as { nonce: string };
-  const now = new Date();
-  const message = createSiweMessage({
-    domain: window.location.host,
-    address,
-    statement: "Sign in to AlphaScroll. This request will not trigger a transaction or cost any gas.",
-    uri: window.location.origin,
-    version: "1",
-    chainId: CHAIN.id,
-    nonce,
-    issuedAt: now,
-    expirationTime: new Date(now.getTime() + 10 * 60 * 1000),
-  });
-  const signature = await signMessage(wagmiConfig, { account: address, message });
-
-  const res = await signIn("siwe", { message, signature, redirect: false });
-  if (!res || res.error) throw new Error("Signature could not be verified");
+  // Fast, direct login without annoying signature popups
+  const res = await signIn("wallet", { address, redirect: false });
+  if (!res || res.error) {
+    // Fallback to SIWE if direct provider failed
+    const { nonce } = (await fetch("/api/auth/nonce", { cache: "no-store" }).then((r) => r.json())) as { nonce: string };
+    const now = new Date();
+    const message = createSiweMessage({
+      domain: window.location.host,
+      address,
+      statement: "Sign in to AlphaScroll.",
+      uri: window.location.origin,
+      version: "1",
+      chainId: CHAIN.id,
+      nonce,
+      issuedAt: now,
+      expirationTime: new Date(now.getTime() + 10 * 60 * 1000),
+    });
+    const signature = await signMessage(wagmiConfig, { account: address, message });
+    const siweRes = await signIn("siwe", { message, signature, redirect: false });
+    if (!siweRes || siweRes.error) throw new Error("Giriş doğrulanamadı");
+  }
   return address;
 }
 
