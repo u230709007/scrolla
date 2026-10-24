@@ -90,11 +90,11 @@ async function removeDirectUpload(key: string) {
  */
 export async function POST(request: Request) {
   if (request.headers.get("origin") !== new URL(request.url).origin)
-    return Response.json({ error: "Geçersiz istek." }, { status: 403 });
+    return Response.json({ error: "Invalid request." }, { status: 403 });
   const address = await currentAddress();
   if (!address)
     return Response.json(
-      { error: "Video paylaşmak için hesabına giriş yap." },
+      { error: "Sign in to post a video." },
       { status: 401 },
     );
   if (request.headers.get("content-type")?.startsWith("application/json"))
@@ -114,7 +114,7 @@ async function direct(request: Request, address: string) {
 
   if (body.action === "presign") {
     if (body.type !== "video/mp4" || !body.size || body.size > MAX_SIZE)
-      return Response.json({ error: "En fazla 50 MB boyutunda bir MP4 video seç." }, { status: 400 });
+      return Response.json({ error: "Choose an MP4 video of up to 50 MB." }, { status: 400 });
     const id = randomUUID();
     const pathname = `videos/${id}.mp4`;
     return Response.json(
@@ -127,30 +127,30 @@ async function direct(request: Request, address: string) {
   if (body.action === "complete") {
     const caption = String(body.caption ?? "").trim();
     if (!body.id || !UUID.test(body.id) || caption.length > 300)
-      return Response.json({ error: "En fazla 300 karakter açıklama kullan." }, { status: 400 });
+      return Response.json({ error: "Keep the caption to 300 characters." }, { status: 400 });
     const key = `videos/${body.id}.mp4`;
     const object = await publicHead(mediaUrl(key));
-    if (!object) return Response.json({ error: "Video bulunamadı. Tekrar yükle." }, { status: 400 });
+    if (!object) return Response.json({ error: "Video not found. Upload it again." }, { status: 400 });
     if (object.size > MAX_SIZE || !isMp4(object.head)) {
       await removeDirectUpload(key);
-      return Response.json({ error: "Geçerli bir MP4 dosyası seç (en fazla 50 MB)." }, { status: 400 });
+      return Response.json({ error: "Choose a valid MP4 file (up to 50 MB)." }, { status: 400 });
     }
     const video = uploadVideo(body.id, address, caption);
     try {
       await insertUpload(video, address);
     } catch {
-      return Response.json({ error: "Bu video zaten paylaşıldı." }, { status: 409 });
+      return Response.json({ error: "This video is already posted." }, { status: 409 });
     }
     return Response.json({ video }, { status: 201 });
   }
 
-  return Response.json({ error: "Geçersiz istek." }, { status: 400 });
+  return Response.json({ error: "Invalid request." }, { status: 400 });
 }
 
 async function multipart(request: Request, address: string) {
   if (Number(request.headers.get("content-length")) > MAX_SIZE + 1024 * 1024)
     return Response.json(
-      { error: "En fazla 50 MB yükleyebilirsin." },
+      { error: "Uploads are limited to 50 MB." },
       { status: 413 },
     );
   try {
@@ -158,7 +158,7 @@ async function multipart(request: Request, address: string) {
     const reader = request.body?.getReader();
     if (!reader)
       return Response.json(
-        { error: "Video dosyası gerekli." },
+        { error: "A video file is required." },
         { status: 400 },
       );
     const chunks: Uint8Array[] = [];
@@ -170,7 +170,7 @@ async function multipart(request: Request, address: string) {
       if (size > MAX_SIZE + 1024 * 1024) {
         await reader.cancel();
         return Response.json(
-          { error: "En fazla 50 MB yükleyebilirsin." },
+          { error: "Uploads are limited to 50 MB." },
           { status: 413 },
         );
       }
@@ -189,14 +189,14 @@ async function multipart(request: Request, address: string) {
       caption.length > 300
     ) {
       return Response.json(
-        { error: "En fazla 50 MB MP4 ve 300 karakter açıklama kullan." },
+        { error: "Use an MP4 of up to 50 MB and a caption of up to 300 characters." },
         { status: 400 },
       );
     }
     const bytes = Buffer.from(await file.arrayBuffer());
     if (!isMp4(bytes))
       return Response.json(
-        { error: "Geçerli bir MP4 dosyası seç." },
+        { error: "Choose a valid MP4 file." },
         { status: 400 },
       );
     const id = randomUUID();
@@ -213,7 +213,7 @@ async function multipart(request: Request, address: string) {
     return Response.json({ video }, { status: 201 });
   } catch {
     return Response.json(
-      { error: "Video kaydedilemedi. Tekrar dene." },
+      { error: "Couldn't save the video. Try again." },
       { status: 500 },
     );
   }

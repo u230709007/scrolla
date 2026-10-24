@@ -28,7 +28,7 @@ export function WalletGuard({ address }: { address: string | null }) {
       if (otherAccount) await signOutEverywhere();
       else await ensureChain();
     } catch (err) {
-      toast.show({ kind: "error", title: "Ağ değiştirilemedi", body: err instanceof Error ? err.message.slice(0, 140) : undefined });
+      toast.show({ kind: "error", title: "Couldn't switch network", body: err instanceof Error ? err.message.slice(0, 140) : undefined });
     } finally {
       setBusy(false);
     }
@@ -39,12 +39,12 @@ export function WalletGuard({ address }: { address: string | null }) {
       <AlertTriangle className="size-5 shrink-0" />
       <p className="min-w-0 flex-1 text-xs font-semibold leading-snug">
         {otherAccount
-          ? `Cüzdan ${shortAddr(conn.address)} hesabına geçti.`
-          : `İşlemler için ${CHAIN.name} ağı gerekiyor.`}
+          ? `Your wallet switched to ${shortAddr(conn.address)}.`
+          : `Trading needs ${CHAIN.name}.`}
       </p>
       <button onClick={fix} disabled={busy} className="flex shrink-0 items-center gap-1 rounded-xl bg-ink px-3 py-2 text-xs font-bold text-white disabled:opacity-60">
         {busy && <Loader2 className="size-3 animate-spin" />}
-        {otherAccount ? "Yeniden bağlan" : "Ağı değiştir"}
+        {otherAccount ? "Sign in again" : "Switch network"}
       </button>
       <button onClick={() => setDismissed(true)} className="p-1 text-ink/70 hover:text-ink text-sm">
         ✕

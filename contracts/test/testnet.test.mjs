@@ -39,6 +39,7 @@ const setup = () =>
       LIQUIDITY_MON: "2",
       DEPLOYMENTS_DIR: dir,
       WEB_ENV_PATH: join(dir, ".env.local"),
+      WEB_DEPLOYMENT_PATH: join(dir, "web", "deployment.json"),
     },
   });
 
@@ -63,7 +64,7 @@ describe("setup-testnet + AlphaTestRouter", () => {
 
   after(() => server.close());
 
-  it("deploys every contract, seeds 6 pools and updates web/.env.local", async () => {
+  it("deploys every contract, seeds 6 pools and updates the web app config", async () => {
     assert.equal(deployment.tokens.length, 6);
     assert.ok(deployment.tokens.every((t) => t.seeded));
     assert.equal(await read(deployment.vault, Vault.abi, "router"), deployment.router);
@@ -75,6 +76,7 @@ describe("setup-testnet + AlphaTestRouter", () => {
     assert.match(env, /^AUTH_SECRET=keep-me$/m);
     assert.match(env, /^NEXT_PUBLIC_CHAIN_ID=31337$/m);
     assert.match(env, new RegExp(`^NEXT_PUBLIC_VAULT_ADDRESS=${deployment.vault}$`, "m"));
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "web", "deployment.json"), "utf8")), deployment);
   });
 
   it("re-running reuses the existing deployment", async () => {

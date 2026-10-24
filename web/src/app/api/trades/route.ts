@@ -36,7 +36,7 @@ export async function POST(req: Request) {
   };
 
   if (body.mode === "demo") {
-    if (tradableAddress(token)) {
+    if (VAULT_ADDRESS && tradableAddress(token)) {
       return Response.json({ error: "This token trades on-chain; demo trades are disabled" }, { status: 400 });
     }
     // fake buys of mainnet tokens would show up as live AlphaScroll activity

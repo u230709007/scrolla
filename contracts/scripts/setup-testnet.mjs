@@ -4,14 +4,15 @@
 //
 // Deploys WMON, AlphaTestRouter, one TestToken per feed token (seeded with
 // LIQUIDITY_MON each), and AlphaScrollSessionVault on that router. Writes
-// deployments/<chainId>.json (read by the video worker) and sets
-// NEXT_PUBLIC_CHAIN_ID / NEXT_PUBLIC_VAULT_ADDRESS in web/.env.local.
+// deployments/<chainId>.json (read by the video worker), copies it to
+// web/src/lib/web3/deployment.json (router and token addresses for the app)
+// and sets NEXT_PUBLIC_CHAIN_ID / NEXT_PUBLIC_VAULT_ADDRESS in web/.env.local.
 //
 // Re-running resumes: contracts already recorded in the deployment file are
 // reused. Delete a field (e.g. "vault") from the file to redeploy just that.
 //
 // Optional env: RPC_URL, LIQUIDITY_MON (default 0.2), TOKEN_SUPPLY (default 1e9),
-// DEPLOYMENTS_DIR, WEB_ENV_PATH (both used by the tests).
+// DEPLOYMENTS_DIR, WEB_ENV_PATH, WEB_DEPLOYMENT_PATH (used by the tests).
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +38,9 @@ const LIQUIDITY = parseEther(process.env.LIQUIDITY_MON || "0.2");
 const SUPPLY = parseEther(process.env.TOKEN_SUPPLY || "1000000000");
 const DEPLOYMENTS_DIR = resolve(process.env.DEPLOYMENTS_DIR || join(root, "deployments"));
 const WEB_ENV_PATH = resolve(process.env.WEB_ENV_PATH || join(root, "..", "web", ".env.local"));
+const WEB_DEPLOYMENT_PATH = resolve(
+  process.env.WEB_DEPLOYMENT_PATH || join(root, "..", "web", "src", "lib", "web3", "deployment.json"),
+);
 
 if (!DEPLOYER_PRIVATE_KEY) {
   console.error("Set DEPLOYER_PRIVATE_KEY (a Monad testnet wallet with MON from https://faucet.monad.xyz).");
@@ -162,8 +166,11 @@ async function setup() {
   }
 
   setEnv(WEB_ENV_PATH, { NEXT_PUBLIC_CHAIN_ID: chainId, NEXT_PUBLIC_VAULT_ADDRESS: state.vault });
+  mkdirSync(dirname(WEB_DEPLOYMENT_PATH), { recursive: true });
+  copyFileSync(deploymentPath, WEB_DEPLOYMENT_PATH);
 
   console.log(`\nDone. Wrote ${deploymentPath}`);
+  console.log(`Copied it to ${WEB_DEPLOYMENT_PATH}`);
   console.log(`Updated ${WEB_ENV_PATH}: NEXT_PUBLIC_CHAIN_ID=${chainId}, NEXT_PUBLIC_VAULT_ADDRESS=${state.vault}`);
   console.log("Restart `npm run dev` in web/ and render new reels so they carry the token addresses.");
 }

@@ -23,7 +23,7 @@ import type { FeedPage, FeedVideo } from "@/lib/types";
 
 import { explorerTx, isForeignToken, tradableAddress } from "@/lib/web3/chain";
 
-import { type LocalSession, buyWithMetaMask, loadSession, quickBuy } from "@/lib/web3/trading";
+import { forgetSession, loadSession, quickBuy, tradingEnabled } from "@/lib/web3/trading";
 
 import { useToast } from "../Toast";
 
@@ -153,7 +153,7 @@ export function Feed({
         })
         .catch(() => {
           setSaved(saved);
-          toast.show({ kind: "error", title: "Kaydedilemedi" });
+          toast.show({ kind: "error", title: "Couldn't save" });
         });
       return;
     }
@@ -162,7 +162,7 @@ export function Feed({
     } catch {
       toast.show({
         kind: "error",
-        title: "Kaydedilenler bu tarayıcıda saklanamadı",
+        title: "Couldn't store saved videos in this browser",
       });
     }
   }
@@ -272,7 +272,7 @@ export function Feed({
 
       setCursor(p.nextCursor);
     } catch {
-      toast.show({ kind: "error", title: "Daha fazla video yüklenemedi" });
+      toast.show({ kind: "error", title: "Couldn't load more videos" });
     } finally {
       setLoadingMore(false);
     }
@@ -436,23 +436,31 @@ export function Feed({
       const token = tradableAddress(video.token);
 
       try {
-        if (token && address) {
-          const amount = parseEther("0.05");
+        if (token && address && tradingEnabled()) {
+          // First buy: one wallet confirmation sets up the session, then this buy resumes.
+          const session = loadSession(address as Address);
+          if (!session) {
+            pendingBuy.current = video;
+            setSheet("session");
+            return;
+          }
+
+          const amount = BigInt(session.maxPerTrade);
           const id = toast.show({
             kind: "loading",
-            title: `${sym} alınıyor…`,
-            body: `MetaMask onayı bekleniyor (${formatEther(amount)} MON)`,
+            title: `Buying ${sym}…`,
+            body: `${formatEther(amount)} MON, no wallet popup`,
           });
 
           try {
-            const { hash } = await buyWithMetaMask(address as Address, token, amount);
+            const { hash } = await quickBuy(session, token, amount);
             fire();
             toast.update(
               id,
               {
                 kind: "success",
-                title: `${sym} başarıyla alındı! 🚀`,
-                body: `${formatEther(amount)} MON testnet işlemi tamamlandı`,
+                title: `Bought ${sym} 🚀`,
+                body: `${formatEther(amount)} MON · tokens are in your wallet`,
                 href: explorerTx(hash),
               },
               6000,
@@ -463,21 +471,34 @@ export function Feed({
               err instanceof Error
                 ? ((err as { shortMessage?: string }).shortMessage ?? err.message)
                 : String(err);
-            const isReject = /reject|denied|cancel/i.test(msg);
+            // Session revoked elsewhere, expired or out of budget: set up a new one.
+            if (/InvalidSession|SessionExpired|BudgetExceeded|TradeTooLarge|InsufficientBalance/i.test(msg)) {
+              forgetSession(address as Address);
+              toast.update(id, {
+                kind: "info",
+                title: "Your one-tap session ran out",
+                body: "Set up a new one to keep buying.",
+              });
+              pendingBuy.current = video;
+              setSheet("session");
+              return;
+            }
             toast.update(id, {
               kind: "error",
-              title: isReject ? "İşlem iptal edildi" : `${sym} alımı başarısız`,
-              body: isReject ? undefined : msg.slice(0, 140),
+              title: `Couldn't buy ${sym}`,
+              body: msg.slice(0, 140),
             });
           }
         } else {
-          const id = toast.show({ kind: "loading", title: `${sym} alınıyor…` });
+          const id = toast.show({ kind: "loading", title: `Buying ${sym}…` });
           await new Promise((r) => setTimeout(r, 450));
           fire();
           toast.update(id, {
             kind: "success",
-            title: `Demo alım: ${formatEther(DEMO_AMOUNT)} MON of ${sym}`,
-            body: "Simüle edildi: bu token testnet havuzunda bulunamadı.",
+            title: `Demo buy: ${formatEther(DEMO_AMOUNT)} MON of ${sym}`,
+            body: token
+              ? "Simulated: no trading vault is configured."
+              : "Simulated: this token has no testnet pool.",
           });
           recordTrade(video, {
             mode: "demo",
@@ -491,11 +512,11 @@ export function Feed({
     [address, fire, recordTrade, toast],
   );
 
-  /** Double-tap: like + real on-chain testnet buy with MetaMask confirmation */
+  /** Double-tap: like + on-chain buy through the session vault (demo without one). */
   const onDoubleTap = useCallback(
     (video: FeedVideo) => {
       if (!address) {
-        toast.show({ kind: "info", title: "İşlem yapmak için cüzdanınızı bağlayın" });
+        toast.show({ kind: "info", title: "Connect your wallet to trade" });
         onRequestLogin();
         return;
       }
@@ -506,8 +527,8 @@ export function Feed({
       if (isForeignToken(video.token)) {
         toast.show({
           kind: "info",
-          title: `$${video.token.symbol} mainnet'te`,
-          body: "Çift tıklayınca alım şimdilik sadece TESTNET videolarında yapılıyor.",
+          title: `$${video.token.symbol} is on mainnet`,
+          body: "Double-tap buys only work on testnet reels for now.",
         });
         return;
       }
@@ -577,7 +598,7 @@ export function Feed({
 
         {status === "error" && (
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-            <p className="font-bold">Akış yüklenemedi</p>
+            <p className="font-bold">Couldn&apos;t load the feed</p>
             <button
               className="secondary-button mt-4"
               onClick={() => {
@@ -591,16 +612,16 @@ export function Feed({
                   .catch(() => setStatus("error"));
               }}
             >
-              Tekrar dene
+              Try again
             </button>
           </div>
         )}
 
         {status === "ready" && videos.length === 0 && (
           <EmptyState
-            title="Akışın burada başlıyor"
+            title="Your feed starts here"
 
-            body="İlk videonu paylaşmak için aşağıdaki + düğmesine dokun."
+            body="Tap the + button below to post your first video."
           />
         )}
 
@@ -657,10 +678,10 @@ export function Feed({
               onClick={() => setScreen("discover")}
               className="pointer-events-auto text-white/60"
             >
-              Keşfet
+              Discover
             </button>
 
-            <span className="border-b-2 border-white pb-0.5">Senin İçin</span>
+            <span className="border-b-2 border-white pb-0.5">For You</span>
           </div>
 
           <button
@@ -734,13 +755,13 @@ export function Feed({
             setIncoming((current) => current.filter((v) => v.id !== video.id));
             setProfileRevision((n) => n + 1);
             setScreen("profile");
-            toast.show({ kind: "success", title: "Videon paylaşıldı" });
+            toast.show({ kind: "success", title: "Your video is live" });
           }}
         />
       )}
 
       <nav
-        aria-label="Ana gezinme"
+        aria-label="Main navigation"
         className="absolute inset-x-0 bottom-0 z-30 flex h-16 items-start justify-around border-t border-white/10 bg-[#080809] pt-2 text-[9px] font-semibold"
       >
         <button
@@ -752,7 +773,7 @@ export function Feed({
           className={`flex w-14 flex-col items-center gap-1 ${screen === "home" ? "text-white" : "text-white/45"}`}
         >
           <Home size={22} fill={screen === "home" ? "currentColor" : "none"} />
-          Ana Sayfa
+          Home
         </button>
 
         <button
@@ -761,13 +782,13 @@ export function Feed({
           className={`flex w-14 flex-col items-center gap-1 ${screen === "discover" ? "text-white" : "text-white/45"}`}
         >
           <Search size={22} />
-          Keşfet
+          Discover
         </button>
 
         <button
           onClick={() => setScreen("upload")}
-          aria-label="Video oluştur"
-          title="Video oluştur"
+          aria-label="Create a video"
+          title="Create a video"
           className="relative mt-1 grid h-8 w-11 place-items-center rounded-lg bg-monad text-white transition-colors hover:bg-monad-soft"
         >
           {/* Official Monad logomark geometry: https://monad.xyz/ */}
@@ -781,7 +802,7 @@ export function Feed({
           className="flex w-14 flex-col items-center gap-1 text-white/45"
         >
           <Zap size={22} />
-          İşlem
+          Trade
         </button>
 
         <button
@@ -790,7 +811,7 @@ export function Feed({
           className={`flex w-14 flex-col items-center gap-1 ${screen === "profile" ? "text-white" : "text-white/45"}`}
         >
           <User size={22} />
-          Profil
+          Profile
         </button>
       </nav>
 
@@ -842,7 +863,7 @@ export function Feed({
           setSheet(null);
         }}
 
-        onReady={(session) => {
+        onReady={() => {
           setSheet(null);
 
           const video = pendingBuy.current;

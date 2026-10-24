@@ -23,7 +23,7 @@ export async function connectWallet(): Promise<Address> {
     await connect(wagmiConfig, { connector: await preferredConnector(), chainId: CHAIN.id });
     conn = getConnection(wagmiConfig);
   }
-  if (!conn.address) throw new Error("Cüzdan hesabı bulunamadı");
+  if (!conn.address) throw new Error("No wallet account found");
   await ensureChain().catch(() => undefined);
   return conn.address;
 }
@@ -42,27 +42,22 @@ export async function ensureChain() {
 
 export async function signInWithEthereum(): Promise<Address> {
   const address = await connectWallet();
-  // Fast, direct login without annoying signature popups
-  const res = await signIn("wallet", { address, redirect: false });
-  if (!res || res.error) {
-    // Fallback to SIWE if direct provider failed
-    const { nonce } = (await fetch("/api/auth/nonce", { cache: "no-store" }).then((r) => r.json())) as { nonce: string };
-    const now = new Date();
-    const message = createSiweMessage({
-      domain: window.location.host,
-      address,
-      statement: "Sign in to AlphaScroll.",
-      uri: window.location.origin,
-      version: "1",
-      chainId: CHAIN.id,
-      nonce,
-      issuedAt: now,
-      expirationTime: new Date(now.getTime() + 10 * 60 * 1000),
-    });
-    const signature = await signMessage(wagmiConfig, { account: address, message });
-    const siweRes = await signIn("siwe", { message, signature, redirect: false });
-    if (!siweRes || siweRes.error) throw new Error("Giriş doğrulanamadı");
-  }
+  const { nonce } = (await fetch("/api/auth/nonce", { cache: "no-store" }).then((r) => r.json())) as { nonce: string };
+  const now = new Date();
+  const message = createSiweMessage({
+    domain: window.location.host,
+    address,
+    statement: "Sign in to AlphaScroll.",
+    uri: window.location.origin,
+    version: "1",
+    chainId: CHAIN.id,
+    nonce,
+    issuedAt: now,
+    expirationTime: new Date(now.getTime() + 10 * 60 * 1000),
+  });
+  const signature = await signMessage(wagmiConfig, { account: address, message });
+  const res = await signIn("siwe", { message, signature, redirect: false });
+  if (!res || res.error) throw new Error("Sign-in could not be verified");
   return address;
 }
 

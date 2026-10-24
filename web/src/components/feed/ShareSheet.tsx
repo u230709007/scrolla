@@ -32,7 +32,7 @@ function useFollow() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address, follow }),
       });
-      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Takip edilemedi");
+      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Couldn't follow");
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
@@ -52,13 +52,13 @@ function FollowButton({ address, following }: { address: string; following: bool
       className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold ${following ? "bg-white/10 text-white/80" : "bg-monad"}`}
     >
       {following ? <UserCheck className="size-3.5" /> : <UserPlus className="size-3.5" />}
-      {following ? "Takipte" : "Takip et"}
+      {following ? "Following" : "Follow"}
     </button>
   );
 }
 
 const relation = (u: AppUser) =>
-  u.followsMe ? (u.following ? "Karşılıklı takip" : "Seni takip ediyor") : u.following ? "Takip ediyorsun" : "Önerilen";
+  u.followsMe ? (u.following ? "Mutual" : "Follows you") : u.following ? "Following" : "Suggested";
 
 /** Share a reel: suggested registered users (follow them, tick, send) + link sharing. */
 export function ShareSheet({
@@ -85,7 +85,7 @@ export function ShareSheet({
     enabled: open && !!address,
     queryFn: async () => {
       const res = await fetch(`/api/users?q=${encodeURIComponent(q)}`, { cache: "no-store" });
-      if (!res.ok) throw new Error("Kullanıcılar yüklenemedi");
+      if (!res.ok) throw new Error("Couldn't load people");
       return ((await res.json()) as { users: AppUser[] }).users;
     },
   });
@@ -98,11 +98,11 @@ export function ShareSheet({
         body: JSON.stringify({ to: [...picked] }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string; sent?: number };
-      if (!res.ok) throw new Error(json.error ?? "Gönderilemedi");
+      if (!res.ok) throw new Error(json.error ?? "Couldn't send");
       return json.sent ?? 0;
     },
     onSuccess: (n) => {
-      toast.show({ kind: "success", title: `${n} kişiye gönderildi` });
+      toast.show({ kind: "success", title: `Sent to ${n} ${n === 1 ? "person" : "people"}` });
       setPicked(new Set());
       onClose();
     },
@@ -117,18 +117,18 @@ export function ShareSheet({
     });
 
   return (
-    <Sheet open={open && !!video} onClose={onClose} title="Paylaş" height="75%">
+    <Sheet open={open && !!video} onClose={onClose} title="Share" height="75%">
       <div className="flex h-full flex-col">
         <button
           onClick={() => video && onCopyLink(video)}
           className="mb-3 flex w-full items-center gap-3 rounded-2xl bg-white/5 p-3 text-sm font-semibold"
         >
-          <Link2 className="size-5 text-monad-soft" /> Bağlantıyı paylaş / kopyala
+          <Link2 className="size-5 text-monad-soft" /> Share or copy link
         </button>
 
         {!address ? (
           <button onClick={onRequestLogin} className="w-full rounded-2xl bg-monad py-3.5 text-sm font-bold">
-            Arkadaşlarına göndermek için cüzdanını bağla
+            Connect your wallet to send this to friends
           </button>
         ) : (
           <>
@@ -137,15 +137,15 @@ export function ShareSheet({
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Adres ara…"
+                placeholder="Search address…"
                 className="w-full rounded-full bg-white/10 py-2.5 pl-9 pr-4 text-sm outline-none placeholder:text-white/40 focus:ring-2 focus:ring-monad"
               />
             </div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/45">Önerilen kişiler</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/45">Suggested</p>
             <ul className="flex-1 space-y-1 overflow-y-auto pb-2">
               {isLoading && <Loader2 className="mx-auto mt-6 size-6 animate-spin text-white/40" />}
               {data?.length === 0 && (
-                <li className="mt-8 text-center text-sm text-white/50">Henüz başka kayıtlı hesap yok.</li>
+                <li className="mt-8 text-center text-sm text-white/50">No other accounts yet.</li>
               )}
               {data?.map((u) => {
                 const on = picked.has(u.address);
@@ -176,7 +176,7 @@ export function ShareSheet({
               className="sticky bottom-0 flex w-full items-center justify-center gap-2 rounded-full bg-monad py-3 text-sm font-bold disabled:opacity-40"
             >
               {send.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-              {picked.size ? `${picked.size} kişiye gönder` : "Kişi seç"}
+              {picked.size ? `Send to ${picked.size}` : "Pick people"}
             </button>
           </>
         )}
@@ -198,17 +198,17 @@ export function PeopleSheet({
     enabled: !!list,
     queryFn: async () => {
       const res = await fetch(`/api/users?list=${list}`, { cache: "no-store" });
-      if (!res.ok) throw new Error("Kullanıcılar yüklenemedi");
+      if (!res.ok) throw new Error("Couldn't load people");
       return ((await res.json()) as { users: AppUser[] }).users;
     },
   });
   return (
-    <Sheet open={!!list} onClose={onClose} title={list === "following" ? "Takip edilenler" : "Takipçiler"} height="65%">
+    <Sheet open={!!list} onClose={onClose} title={list === "following" ? "Following" : "Followers"} height="65%">
       <ul className="space-y-1">
         {isLoading && <Loader2 className="mx-auto mt-6 size-6 animate-spin text-white/40" />}
         {data?.length === 0 && (
           <li className="mt-10 text-center text-sm text-white/50">
-            {list === "following" ? "Henüz kimseyi takip etmiyorsun." : "Henüz takipçin yok."}
+            {list === "following" ? "You aren't following anyone yet." : "No followers yet."}
           </li>
         )}
         {data?.map((u) => (
@@ -227,9 +227,9 @@ export function PeopleSheet({
 }
 
 const NOTICE: Record<InboxItem["kind"], string> = {
-  share: "sana bir video gönderdi",
-  follow: "seni takip etmeye başladı",
-  join: "AlphaScroll'a katıldı",
+  share: "sent you a video",
+  follow: "started following you",
+  join: "joined AlphaScroll",
 };
 
 /** Notifications: reels other users sent me, new followers, newly joined users. */
@@ -260,7 +260,7 @@ export function InboxSheet({
   async function openItem(item: InboxItem) {
     if (!item.videoId) return;
     const res = await fetch(`/api/videos/${item.videoId}`, { cache: "no-store" });
-    if (!res.ok) return toast.show({ kind: "error", title: "Video artık yok" });
+    if (!res.ok) return toast.show({ kind: "error", title: "This video is gone" });
     onOpenVideo(((await res.json()) as { video: FeedVideo }).video);
   }
 
@@ -268,7 +268,7 @@ export function InboxSheet({
     <Sheet open={open} onClose={onClose} title="Bildirimler" height="65%">
       <ul className="space-y-1">
         {isLoading && <Loader2 className="mx-auto mt-6 size-6 animate-spin text-white/40" />}
-        {data?.length === 0 && <li className="mt-10 text-center text-sm text-white/50">Henüz bildirimin yok.</li>}
+        {data?.length === 0 && <li className="mt-10 text-center text-sm text-white/50">No notifications yet.</li>}
         {data?.map((i) => (
           <li key={i.id} className="flex items-center gap-2 rounded-2xl p-2 hover:bg-white/5">
             <button
@@ -281,7 +281,7 @@ export function InboxSheet({
                 <span className="block text-sm">
                   <span className="font-mono font-bold">{shortAddr(i.from)}</span> {NOTICE[i.kind]}
                 </span>
-                <span className="block text-xs text-white/50">{timeAgo(i.createdAt)} önce</span>
+                <span className="block text-xs text-white/50">{timeAgo(i.createdAt)} ago</span>
               </span>
               {!i.seen && <span className="size-2 shrink-0 rounded-full bg-monad" />}
             </button>

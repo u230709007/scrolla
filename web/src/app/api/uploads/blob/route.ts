@@ -20,8 +20,8 @@ export async function POST(request: Request) {
       request,
       token: BLOB_TOKEN,
       onBeforeGenerateToken: async (pathname) => {
-        if (!(await currentAddress())) throw new Error("Video paylaşmak için hesabına giriş yap.");
-        if (!PATHNAME.test(pathname)) throw new Error("Geçersiz dosya yolu.");
+        if (!(await currentAddress())) throw new Error("Sign in to post a video.");
+        if (!PATHNAME.test(pathname)) throw new Error("Invalid file path.");
         return {
           allowedContentTypes: ["video/mp4"],
           maximumSizeInBytes: MAX_SIZE,
@@ -33,6 +33,6 @@ export async function POST(request: Request) {
     });
     return Response.json(result);
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Yükleme reddedildi." }, { status: 400 });
+    return Response.json({ error: error instanceof Error ? error.message : "Upload rejected." }, { status: 400 });
   }
 }

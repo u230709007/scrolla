@@ -1,5 +1,6 @@
-import { type Address, type Hash, parseEther } from "viem";
+import { type Address, type Hash, parseEther, zeroAddress } from "viem";
 import { monad, monadTestnet } from "viem/chains";
+import deployment from "./deployment.json";
 
 /** Monad testnet (10143) by default; set NEXT_PUBLIC_CHAIN_ID=143 for mainnet. */
 export const CHAIN = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? monadTestnet.id) === monad.id ? monad : monadTestnet;
@@ -23,17 +24,15 @@ export const SESSION_GAS_STIPEND = parseEther(process.env.NEXT_PUBLIC_SESSION_GA
 /** Max slippage applied to the vault quote, in basis points. */
 export const SLIPPAGE_BPS = BigInt(process.env.NEXT_PUBLIC_SLIPPAGE_BPS || "800");
 
-export const ROUTER_ADDRESS: Address = "0x10e3cEa0162bc69F646aCC6284a02512059E1F8F";
-export const WMON_ADDRESS: Address = "0x4dD6528f745cFe5C0fc8A5939b674d75b1Ff529C";
+/** Test DEX from `npm run setup:testnet`, which rewrites deployment.json. */
+const TESTNET = IS_TESTNET ? (deployment as { router: Address; tokens: { symbol: string; address: Address }[] }) : null;
 
-export const KNOWN_TESTNET_TOKENS: Record<string, Address> = {
-  MOLANDAK: "0xe0aEcaB1DA28F9838e56F046711909ab505f963C",
-  CHOG: "0x0D7cb0d8fe78e4849816426DedF1F9fDC9F3Ec3f",
-  MOYAKI: "0x64A15558ed7fAD5BCc7cf71548945A21ce19B1bB",
-  PURPLE: "0xD71AEeB309b3b4c5bE0Cbb753a70eA521DF41284",
-  GMONAD: "0xbB560830F3DE49c45cfB9DE23227d9F027F09A1F",
-  NADS: "0xF9436d33611656094f3FE0919A6D30E4dc544cda",
-};
+export const ROUTER_ADDRESS = (process.env.NEXT_PUBLIC_ROUTER_ADDRESS || TESTNET?.router || zeroAddress) as Address;
+
+/** Testnet pools by symbol, so reels rendered before the setup still map onto them. */
+export const KNOWN_TESTNET_TOKENS: Record<string, Address> = Object.fromEntries(
+  (TESTNET?.tokens ?? []).map((t) => [t.symbol, t.address]),
+);
 
 /** Token address to buy on-chain, or null when the reel's token lives on another
  * network (e.g. a mainnet DexScreener token while the app runs on testnet). */

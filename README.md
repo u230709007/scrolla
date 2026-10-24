@@ -1,184 +1,221 @@
 # AlphaScroll
 
-## Creator UI
-
-The phone includes Home, Discover, Create (+), Trade and Profile navigation.
-Discover searches loaded videos and offers pagination. Profile shows your uploads
-and bookmarks stored in this browser, with wallet settings available separately.
-Signed-in users can publish MP4 files up to 50 MB with captions up to 300 characters.
-`POST /api/uploads` validates authentication, origin, size and MP4 signature;
-`GET /api/uploads` returns the current account's uploads. Media is stored in
-`worker/output/videos/`, and ownership/metadata in `web/data/app.db`.
-Uploads join the feed with likes/comments but do not trigger token purchases.
-Back up both locations. Hosting requires persistent writable storage.
-
-### Local Ollama scripts
-
-Start Ollama and choose a text model already available in `ollama list`.
-Set `OLLAMA_MODEL` to that exact model name in `worker/.env`; optionally set
-`OLLAMA_URL` (default: `http://127.0.0.1:11434`). Then run:
-
-```powershell
-cd worker
-python video_worker.py --format avatar --persona chog
-```
-
-Ollama generates the narration, hook and image prompt. MoviePy renders the MP4,
-which appears through the existing feed polling. Configured cloud providers and
-the template remain fallbacks if Ollama fails. Voice/image services may still use
-the internet. The Studio's Local AI panel explains setup; it does not start jobs
-or install models. [Ollama chat API](https://github.com/ollama/ollama/blob/main/docs/api.md).
-
-TikTok-style SocialFi & trading dApp for Monad degens, fed by an autonomous AI video pipeline that only uses free tools.
+**Scroll a memecoin, double-tap, own it.** A TikTok-style feed for Monad where every reel is about a live token, an AI pipeline makes the reels on its own, and a double-tap is a real on-chain buy.
 
 ![AlphaScroll: mobile feed, double-tap buy with confetti, comments](docs/screenshot.png)
 
+| | |
+|---|---|
+| Live app | <!-- TODO: add the Vercel URL --> `https://…vercel.app` |
+| 2-minute demo video | <!-- TODO: add the link --> |
+| Network | Monad testnet (chain id `10143`) |
+| Vault contract | [`0x222b7A69766a163c1C2c315934F48E06a3D1C268`](https://testnet.monadexplorer.com/address/0x222b7A69766a163c1C2c315934F48E06a3D1C268) |
+| Tests | 11 contract tests + 5 web tests, all passing |
+
+---
+
+## The problem
+
+Memecoin traders find tokens on X, Telegram and Farcaster, then switch to a DEX, paste a contract address, approve, swap and confirm. By the time they've done that, the moment has passed. The discovery happens in a social feed; the trade happens somewhere else.
+
+**Who it's for:** people who already trade small amounts of memecoins on their phone and spend their day scrolling short video.
+
+**What AlphaScroll does:** it puts discovery and execution in the same gesture. The feed shows one token per reel, with live price, volume and on-chain buyer activity. Double-tap means "like and buy". The tokens land in your own wallet.
+
+**Why it lasts past today:** the feed fills itself. A worker picks tokens with real on-chain activity (fresh trades, AlphaScroll buys, Farcaster buzz), writes a script, voices it and renders a vertical video, every few minutes, with free tools only. Creators can also upload their own reels. There's no content team to run out of.
+
+## How it works
+
 ```
-worker/      Python daemon: market data -> AI script -> voice -> image -> .mp4 + SQLite row
-web/         Next.js 16 app: feed, SIWE login, likes/comments, double-tap buys
-contracts/   AlphaScrollSessionVault.sol: session-key trading on Monad
+ DexScreener · GeckoTerminal trades · Farcaster · AlphaScroll buys
+                         │
+                         ▼
+ ┌──────────────── worker/ (Python) ────────────────┐
+ │ pick token → LLM script → voice + word timings   │
+ │ → AI background → avatar → 1080x1920 MP4         │
+ └──────────────────────┬───────────────────────────┘
+                        │ videos + SQLite/Turso row
+                        ▼
+ ┌──────────────── web/ (Next.js 16) ───────────────┐
+ │ snap-scroll feed · likes · comments · follows    │
+ │ share-to-user inbox · creator uploads · stats    │
+ │ double-tap ─────────────────────────┐            │
+ └─────────────────────────────────────┼────────────┘
+                                       ▼
+ ┌──────────────── Monad testnet ───────────────────┐
+ │ AlphaScrollSessionVault → V2 router → token      │
+ │ Bought event ─► /api/trades verifies receipt     │
+ └──────────────────────────────────────────────────┘
+                        │
+                        └─► trades feed back into which token gets the next reel
 ```
 
-The worker and the web app share only the worker's output folder (`worker/output/`): videos, thumbnails and `alphascroll.db`. The web app reads that database read-only and keeps its own data (likes, comments, trades) in `web/data/app.db`.
+The loop is the point: what people buy on AlphaScroll decides what the worker films next, so the feed follows real demand instead of a schedule.
 
-## Quick start
+## Why it needs Monad
+
+The chain isn't a payment rail bolted on at the end. Three parts of the product only work because they're on-chain, and two only work because it's Monad.
+
+1. **The vault enforces the spending rules, not our server.** `AlphaScrollSessionVault` holds the user's MON and lets a browser-generated session key do exactly one thing: `buy(token, amountIn, minOut, deadline)`. Expiry, per-trade cap and total budget are checked in the contract. Bought tokens go straight to the owner's address. A leaked key can't withdraw a single wei. No backend could give the same guarantee.
+2. **Trades are verified from chain state.** `/api/trades` doesn't trust the client. It fetches the receipt from the RPC and accepts the trade only if it contains a `Bought` event from our vault for the signed-in wallet. Amounts come from the log. Trade counts and the "live buyers" ranking can't be faked.
+3. **Self-custody.** The user keeps their tokens in their own wallet. AlphaScroll never holds them.
+4. **Monad: sub-second blocks** make "double-tap → confetti → tokens in wallet" feel like a like button, not a trade ticket. On a 12-second chain, the gesture doesn't work.
+5. **Monad: cheap gas** makes 0.05 MON impulse buys reasonable. Gas is about 0.015 MON per buy at 100 gwei, small enough to pre-fund a session key once (0.1 MON stipend) and forget about it.
+
+We also built around Monad specifics rather than ignoring them: Monad bills the full gas limit, so the stipend and sweep math use the limit; and Monad checks balances against a slightly delayed state ([reserve balance](https://docs.monad.xyz/developer-essentials/reserve-balance)), so a freshly funded session key waits 3 blocks before its first buy (`web/src/lib/web3/trading.ts`).
+
+## What's real and what isn't
+
+| Part | Status |
+|---|---|
+| Session vault on Monad testnet (deposit, session keys, caps, `buy`, revoke, withdraw) | **Live**, deployed and covered by 11 tests |
+| Test DEX on Monad testnet (WMON, V2-style router, 6 memecoins with liquidity) | **Live**. Real swaps, but testnet pools we seeded (see below) |
+| Double-tap buy of a testnet token | **Live**: one wallet confirmation sets up a session, then every double-tap is a real swap through the vault with no popup, and an explorer link in the toast |
+| Server-side trade verification from the `Bought` event | **Live** |
+| AI video worker (token pick → script → voice → image → avatar → MP4) | **Live**: renders a reel in about a minute, on a loop |
+| Feed, likes, comments, follows, share-to-user inbox, notifications, saved reels | **Live**, stored in SQLite locally or Turso in production |
+| Creator MP4 uploads (Vercel Blob / R2 / local disk) | **Live** |
+| Live token stats (DexScreener, GeckoTerminal trades) | **Live** for mainnet tokens; testnet tokens show their render-time snapshot |
+| Reels about mainnet tokens (`--source dexscreener`) | Market data is real; buying them is **disabled** while the app runs on testnet |
+| Mock tokens (when no deployment file exists) | **Demo mode**: confetti and a trade recorded as `demo`, no transaction |
+
+## What's original
+
+- **Discovery and execution in one gesture.** Most "SocialFi" apps put a buy button next to content. Here the content's native gesture, the double-tap, is the trade.
+- **A feed nobody has to feed.** The reels are made by an autonomous pipeline that only uses free tools (Groq, OpenRouter free models, Edge-TTS, Pollinations, MoviePy), with a fallback at every step so it never stops.
+- **On-chain demand steers content.** The worker ranks candidates by recent swaps, AlphaScroll buys and Farcaster cashtag mentions, so the next reel is about what people are actually buying.
+- **VTuber-style mascots drawn in code.** The `avatar` format animates Monad-community mascots (Froggy Nad, Chog Cat, Nad Blob) with Pillow: lip-sync from voice loudness, blinking, bounce on loud syllables. No GPU or model download.
+- **Bounded session keys instead of "trust us" custody.** One wallet confirmation gives the browser a key that can only buy, only up to a budget, only until expiry.
+
+## Demo walkthrough (2 minutes)
+
+1. Open the app on a phone (or desktop, which shows an iPhone frame). Scroll: each reel is about a different Monad token, narrated by an AI mascot with word-synced captions.
+2. Tap the stats icon: price, volume and the last minutes of on-chain trades.
+3. Click **Connect MetaMask**. The app adds Monad testnet and switches to it.
+4. Double-tap a reel about a testnet token (e.g. `$CHOG`). The first time, **One-tap trading** opens: pick a budget, an amount per tap and an expiry, and confirm once in MetaMask. The buy then goes through: confetti, and a toast with the explorer link. The tokens are in your wallet.
+5. Scroll and double-tap a few more reels. No more wallet popups: each tap is signed by the session key and settles in about a second.
+6. Open the Trade tab to see the vault balance and what's left of the session budget, and revoke the session to get the remaining MON back.
+7. Show the worker terminal: a new reel is being rendered about the token you just bought, and it appears as a "1 new reel" pill in the feed.
+
+## Deployed contracts (Monad testnet, `10143`)
+
+| Contract | Address |
+|---|---|
+| `AlphaScrollSessionVault` | [`0x222b7A69766a163c1C2c315934F48E06a3D1C268`](https://testnet.monadexplorer.com/address/0x222b7A69766a163c1C2c315934F48E06a3D1C268) |
+| `AlphaTestRouter` (V2-compatible) | [`0x10e3cEa0162bc69F646aCC6284a02512059E1F8F`](https://testnet.monadexplorer.com/address/0x10e3cEa0162bc69F646aCC6284a02512059E1F8F) |
+| `WMON` | [`0x4dD6528f745cFe5C0fc8A5939b674d75b1Ff529C`](https://testnet.monadexplorer.com/address/0x4dD6528f745cFe5C0fc8A5939b674d75b1Ff529C) |
+| Test tokens | `MOLANDAK`, `CHOG`, `MOYAKI`, `PURPLE`, `GMONAD`, `NADS`: see [contracts/deployments/10143.json](contracts/deployments/10143.json) |
+
+## Run it locally
+
+Requires Python 3.10+ and Node.js 22.5+ (the app uses the built-in `node:sqlite`). No GPU, no paid API.
 
 ```bash
-# 1. Render a first video (works offline with fallbacks)
-cd worker && pip install -r requirements.txt && python video_worker.py && cd ..
+# 1. Render a first reel (works offline thanks to the fallbacks)
+cd worker
+pip install -r requirements.txt
+cp .env.example .env          # optional: free GROQ_API_KEY / OPENROUTER_API_KEY
+python video_worker.py
+cd ..
 
 # 2. Start the app
-cd web && npm install
-cp .env.example .env.local     # then set AUTH_SECRET (npx auth secret)
-npm run dev                    # http://localhost:3000
+cd web
+npm install
+cp .env.example .env.local    # set AUTH_SECRET (npx auth secret) and NEXT_PUBLIC_VAULT_ADDRESS
+npm run dev                   # http://localhost:3000
 ```
 
-Requires Python 3.10+ and Node.js 22.5+ (the app uses the built-in `node:sqlite`).
+To use the contracts that are already deployed, set `NEXT_PUBLIC_VAULT_ADDRESS=0x222b7A69766a163c1C2c315934F48E06a3D1C268` in `web/.env.local`, and get test MON from the [Monad faucet](https://faucet.monad.xyz).
 
-## Monad testnet with MetaMask
-
-Without a deployed vault, double-tap buys run in demo mode. To make them real trades on Monad testnet:
-
-1. Create a fresh MetaMask account for deploying, and fund it with about 2 MON from the [Monad faucet](https://faucet.monad.xyz).
-2. Export its private key (MetaMask → Account details → Show private key) and run:
-
-   ```bash
-   cd contracts && npm install
-   DEPLOYER_PRIVATE_KEY=0x... npm run setup:testnet
-   ```
-
-   On Windows PowerShell: `$env:DEPLOYER_PRIVATE_KEY="0x..."; npm run setup:testnet`.
-
-   This deploys a small test DEX (WMON, a V2-compatible router and six test memecoins with liquidity) and the session vault, writes `contracts/deployments/10143.json`, and sets `NEXT_PUBLIC_CHAIN_ID` and `NEXT_PUBLIC_VAULT_ADDRESS` in `web/.env.local`. If it stops halfway, run it again: it picks up where it left off.
-3. Restart `npm run dev` in `web/` and render new reels (`python video_worker.py`). The worker picks up the deployment file and tags each reel with a real testnet token address.
-4. Open the app and click **Connect MetaMask**. MetaMask asks to add and switch to Monad Testnet, then to sign the login message. The first double-tap opens One-tap trading; after one confirmation, every double-tap is a real swap on testnet.
-
-Monad charges for the whole gas limit, so a buy costs about 0.015 MON in gas at 100 gwei. The session key gets a 0.1 MON gas stipend (`NEXT_PUBLIC_SESSION_GAS_STIPEND`) and returns what's left when you revoke the session.
-
-Reels rendered before the setup, or for tokens from another network (such as `--source dexscreener` mainnet tokens), stay in demo mode.
-
-## Video worker (`worker/`)
-
-`video_worker.py` builds a vertical 1080x1920 `.mp4` from market data:
-
-| Step | Tool | Fallback if unavailable |
-|---|---|---|
-| Token data | Monad testnet tokens from `setup:testnet` (default once deployed), mock generator, or DexScreener (`--source dexscreener`) | Mock token |
-| Script + image prompt | Groq `openai/gpt-oss-120b` (JSON mode), then OpenRouter `openrouter/free` | Template script |
-| Voice-over + word timestamps | Fish Audio S2 (free on OpenRouter) + Groq Whisper timings, or Edge-TTS (no key) | Edge-TTS, then silent track with estimated timings |
-| Background | Pollinations.ai (no key) | Procedural neon chart |
-| Render | MoviePy 2 + FFmpeg: Ken Burns zoom, ticker badge, word-synced captions | — |
-| Index | SQLite `videos` table (for the Next.js feed) | — |
-
-### Video formats
-
-Each run picks a format (`--format random` mixes them using `AVATAR_RATIO`, default 50%):
-
-- **classic**: AI poster background with word-synced captions.
-- **avatar**: a talking mascot in TikTok PNGtuber/VTuber style, reacting in front of the AI background. Drawn with Pillow (`avatar.py`), so it needs no GPU or model download. The mouth follows the loudness of the voice-over, the eyes blink, and the body bounces on loud syllables. The script is written in first person in the persona's voice.
-
-| Persona (`--persona`) | Look | Edge-TTS voice |
-|---|---|---|
-| `froggy` (Froggy Nad) | Green frog, sunglasses | `en-US-GuyNeural` |
-| `chog` (Chog Cat) | Purple cat, gold chain | `en-US-AnaNeural` |
-| `blob` (Nad Blob) | Pink blob, cap | `en-US-ChristopherNeural` |
-
-To add a persona, add a `Persona(...)` entry to `PERSONAS` in `avatar.py`.
-
-### Setup
-
-```bash
-cd worker
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # add your free GROQ_API_KEY (console.groq.com) and OPENROUTER_API_KEY (openrouter.ai)
-```
-
-FFmpeg ships with MoviePy (`imageio-ffmpeg`), so no system install is needed. No ImageMagick either: MoviePy 2 draws text with Pillow.
-
-### Run
-
-```bash
-python video_worker.py                      # one video: testnet token if deployed, else mock
-python video_worker.py --source dexscreener # top Monad pair by 24h volume
-python video_worker.py --format avatar --persona chog
-python video_worker.py --loop               # daemon: one video every 15 min
-```
-
-Output:
-
-- `output/videos/*.mp4`: H.264 + AAC, `yuv420p`, `+faststart` (plays instantly in `<video>`)
-- `output/thumbs/*.jpg`: poster images
-- `output/alphascroll.db`: one row per video (paths, token stats, script, `format`, `persona`)
-- `output/work/<id>/`: intermediate files (script, voice, image)
-
-## Web app (`web/`)
-
-Next.js 16 (App Router), React 19, Tailwind CSS v4, Framer Motion, wagmi/viem, NextAuth v5.
-
-- **iPhone mockup** (`max-w-[400px] h-[850px] rounded-[40px]`) on desktop; full screen with no bezel on phones.
-- **Feed**: CSS snap scroll. Only the visible video plays, the next one is preloaded, and the others are paused and rewound. Videos are kept mounted only near the viewport. New reels from the worker show up as a "N new reels" pill instead of shifting the video you're watching. Arrow keys scroll, `m` toggles sound.
-- **Gestures**: a single tap pauses or plays. A double-tap (mouse or touch) shows a heart burst, likes the video and buys the token.
-- **Right rail**: like, comments (bottom sheet), token stats (live DexScreener data, falling back to the render-time snapshot), share.
-- **SIWE login**: MetaMask (or another injected wallet) signs a single-use nonce (httpOnly cookie). The server checks the domain, chain and expiry, then verifies the signature: locally for EOAs, over RPC for ERC-1271/6492 smart wallets. You can also browse as a guest.
-
-### API
-
-| Route | |
-|---|---|
-| `GET /api/feed?cursor=&limit=` | Paginated videos with like/comment/trade counts |
-| `GET /api/media/{videos,thumbs}/<file>` | Worker output with HTTP Range (206) support and immutable caching |
-| `POST /api/videos/:id/like` | Toggle a like, or set it with `{ "liked": true }` |
-| `GET/POST /api/videos/:id/comments` | List or post comments (1–280 chars) |
-| `GET /api/videos/:id/stats` | Live token stats, cached 15s |
-| `POST /api/trades` | Record a buy. On-chain buys are verified from the receipt's `Bought` event |
-| `GET /api/auth/nonce`, `/api/auth/*` | SIWE nonce and NextAuth |
-
-### Double-tap trading
-
-Without `NEXT_PUBLIC_VAULT_ADDRESS`, for mock tokens that have no contract address, or for tokens from another network, buys run in **demo mode**: you still get the confetti, and the trade is recorded as `demo`.
-
-If MetaMask is on another network, or has switched to an account other than the one signed in, a banner offers to switch network or sign in again.
-
-With a deployed vault, the first double-tap opens **One-tap trading**. The user picks a budget, a per-tap amount and an expiry, then confirms **once** in their wallet. That single transaction deposits the MON, authorises a session key generated in the browser, and sends the key a small gas stipend. After that, each double-tap is signed by the session key with no wallet popup: the app gets a quote, applies slippage, calls `vault.buy()` and waits for the receipt. Monad's fast blocks make this feel instant. The session can be revoked, and the remaining balance withdrawn, from the Trade tab.
-
-## Contracts (`contracts/`)
-
-`src/AlphaScrollSessionVault.sol`:
-
-- The owner deposits MON and authorises one session key with an expiry, a per-trade cap and a total budget.
-- The session key can **only** call `buy(token, amountIn, minOut, deadline)`. That swaps the owner's deposit on a Uniswap V2-compatible router (`swapExactETHForTokensSupportingFeeOnTransferTokens`) and sends the tokens **straight to the owner**.
-- The key cannot withdraw anything. If it leaks, the worst case is bad trades within the remaining budget.
-
-`src/testnet/AlphaTestDex.sol` (testnet only): `TestToken`, `WMON` and `AlphaTestRouter`, a constant-product router (0.3% fee) with the Uniswap V2 functions the vault uses plus a sell path. Only the deployer can add liquidity.
+### Deploy your own contracts
 
 ```bash
 cd contracts && npm install
-npm test        # compiles with bundled solc-js, runs 11 tests on Ganache (incl. a full setup:testnet run)
-DEPLOYER_PRIVATE_KEY=0x... npm run setup:testnet                 # test DEX + tokens + vault on Monad testnet
-DEPLOYER_PRIVATE_KEY=0x... ROUTER_ADDRESS=0x... npm run deploy   # vault only, on an existing router
+DEPLOYER_PRIVATE_KEY=0x... npm run setup:testnet
+# PowerShell: $env:DEPLOYER_PRIVATE_KEY="0x..."; npm run setup:testnet
 ```
 
-`setup:testnet` accepts `LIQUIDITY_MON` (MON per pool, default 0.2) and `RPC_URL`. For `deploy`, `ROUTER_ADDRESS` must be a V2-compatible router on the target chain. The deploy script prints the `NEXT_PUBLIC_VAULT_ADDRESS` value to put in `web/.env.local`. After changing the contract, run `npm run abi` to regenerate `web/src/lib/web3/vaultAbi.ts`.
+This deploys the test DEX, six memecoins with liquidity and the vault, writes `contracts/deployments/10143.json` (and a copy in `web/src/lib/web3/deployment.json`, where the app reads the router and token addresses) and sets `NEXT_PUBLIC_CHAIN_ID` and `NEXT_PUBLIC_VAULT_ADDRESS` in `web/.env.local`. It's resumable: if it stops halfway, run it again. Use a fresh account with about 2 MON. After that, new reels from the worker are tagged with the real token addresses.
 
-The contracts have tests and an internal review ([contracts/SECURITY.md](contracts/SECURITY.md): manual review plus Slither), but **no professional audit**. Use small budgets.
+`setup:testnet` accepts `LIQUIDITY_MON` (MON per pool, default 0.2) and `RPC_URL`. To deploy only the vault against an existing V2 router: `DEPLOYER_PRIVATE_KEY=0x... ROUTER_ADDRESS=0x... npm run deploy`. After changing the contract, `npm run abi` regenerates `web/src/lib/web3/vaultAbi.ts`.
+
+### Tests
+
+```bash
+cd contracts && npm test        # 11 tests on Ganache, incl. a full setup:testnet run
+cd web && npm test              # 5 tests: live-feed ranking, uploads
+```
+
+## Under the hood
+
+### Contracts (`contracts/`)
+
+`AlphaScrollSessionVault.sol`:
+
+- `authorizeSession(key, expiry, maxPerTrade, budget, gasStipend)`: one payable call deposits MON, forwards a gas stipend to the session key and authorises it. It replaces any previous session.
+- `buy(token, amountIn, minOut, deadline)`: callable by the session key (within its caps) or by the owner. Swaps on a Uniswap V2-compatible router with `swapExactETHForTokensSupportingFeeOnTransferTokens` and sends the tokens to the owner. `amountOut` is measured as the owner's balance change, so fee-on-transfer tokens work.
+- `revokeSession()`, `withdraw(amount)`: owner only. All state-changing functions are `nonReentrant` and update state before external calls.
+
+`testnet/AlphaTestDex.sol` (testnet only): `TestToken`, `WMON` and `AlphaTestRouter`, a constant-product router with a 0.3% fee.
+
+### Video worker (`worker/`)
+
+| Step | Tool | Fallback |
+|---|---|---|
+| Token pick | Monad testnet tokens, or DexScreener + GeckoTerminal trades + Farcaster (Neynar) + AlphaScroll buys | Mock token |
+| Script + image prompt | Local Ollama (optional), Groq `openai/gpt-oss-120b`, OpenRouter free models | Template script |
+| Voice + word timings | Fish Audio S2 + Groq Whisper, or Edge-TTS | Silent track with estimated timings |
+| Background | Pollinations.ai, SDXL-Lightning on a local GPU (optional) | Procedural neon chart |
+| Render | MoviePy 2 + FFmpeg, frames rendered in parallel: Ken Burns zoom, ticker badge, word-synced captions, avatar | — |
+| Publish | SQLite locally; Turso + Vercel Blob or R2 in production | — |
+
+```bash
+python video_worker.py                        # one reel
+python video_worker.py --source dexscreener   # live Monad mainnet token, picked by activity
+python video_worker.py --format avatar --persona chog
+python video_worker.py --loop                 # daemon
+```
+
+Personas: `froggy` (Froggy Nad), `chog` (Chog Cat), `blob` (Nad Blob). Add one with a `Persona(...)` entry in `avatar.py`. All settings are documented in [worker/.env.example](worker/.env.example).
+
+### Web app (`web/`)
+
+Next.js 16 (App Router), React 19, Tailwind CSS v4, Framer Motion, wagmi/viem, NextAuth v5, libSQL.
+
+- **Feed:** CSS snap scroll; only the visible video plays and the next one is preloaded. New reels appear as a "N new reels" pill instead of moving the video you're watching.
+- **Gestures:** tap to pause, double-tap to like and buy. Arrow keys scroll, `m` toggles sound.
+- **Social:** comments, follows, follower lists, share a reel to another user, inbox with notifications, saved reels, creator uploads (MP4 up to 50 MB, signature-checked).
+- **Login:** MetaMask or any injected wallet, with Sign-In with Ethereum (single-use nonce in an httpOnly cookie, domain/chain/expiry checks, EOA and ERC-1271/6492 signatures). Guests can browse.
+
+| Route | |
+|---|---|
+| `GET /api/feed?cursor=&limit=` | Paginated reels with like/comment/trade counts |
+| `POST /api/trades` | Record a buy; on-chain buys are verified from the receipt |
+| `GET /api/videos/:id/stats` | Live token stats, cached 15 s |
+| `POST /api/videos/:id/like`, `GET/POST /api/videos/:id/comments`, `POST /api/videos/:id/share` | Social actions |
+| `GET/POST /api/uploads` | Creator uploads |
+| `GET /api/users`, `POST /api/users/follow`, `GET /api/users/stats`, `GET /api/inbox`, `GET/POST /api/saved` | Profiles, follows, notifications, saved reels |
+| `GET /api/auth/nonce`, `/api/auth/*` | SIWE nonce and NextAuth |
+
+Production runs on Vercel (Root Directory `web/`) with Turso for data and Vercel Blob or Cloudflare R2 for media. See [web/.env.example](web/.env.example).
+
+## Security
+
+The contracts have tests and an internal review, manual plus Slither, in [contracts/SECURITY.md](contracts/SECURITY.md). **There has been no professional audit.** No critical or high findings; the main accepted risk is that a leaked session key can make bad trades within its remaining budget. It can never withdraw.
+
+## What's unfinished
+
+We'd rather tell you than have you find it:
+
+- **Testnet only.** Tokens and pools are ones we deployed, so prices are not market prices. Mainnet needs a real DEX router and an audit.
+- **Session keys live in `localStorage`.** An XSS bug would expose one; the damage is capped by the session budget (W-1 in SECURITY.md).
+- **No sell button.** You buy from the feed and sell in your own wallet or DEX.
+- **No content moderation** for creator uploads beyond the file checks.
+- **AI scripts can be wrong.** They're generated from market data and labelled as such, not financial advice.
+
+## Roadmap
+
+1. Per-session token allowlist in the vault, and a signature from the session key in `authorizeSession` (fixes V-1's second attack and V-2).
+2. Mainnet: integrate an existing Monad V2 router, professional audit.
+3. Creator revenue share: a cut of the swap fee on buys made from a creator's reel, paid on-chain.
+4. Sell from the feed and a portfolio view with P&L.

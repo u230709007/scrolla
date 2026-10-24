@@ -34,7 +34,7 @@ function NetworkTag({ video }: { video: FeedVideo }) {
   if (tradableAddress(video.token)) {
     return (
       <span className="rounded bg-monad px-1.5 py-0.5 text-[9px] font-extrabold tracking-wider text-white">
-        TESTNET · 2× AL
+        TESTNET · 2× BUY
       </span>
     );
   }
@@ -43,13 +43,13 @@ function NetworkTag({ video }: { video: FeedVideo }) {
 
 /** Why this video sits in the live section, freshest signal first. */
 function liveLabel(live: LiveActivity): string | null {
-  if (live.lastTradeAt) return `${timeAgo(live.lastTradeAt)} önce AlphaScroll'da alındı`;
+  if (live.lastTradeAt) return `Bought on AlphaScroll ${timeAgo(live.lastTradeAt)} ago`;
   if (live.lastMarketTradeAt) {
-    const big = live.largestBuyUsd15m >= 50 ? ` · ${fmtUsd(live.largestBuyUsd15m)} alım` : "";
-    return `Son işlem ${timeAgo(live.lastMarketTradeAt)} önce${big}`;
+    const big = live.largestBuyUsd15m >= 50 ? ` · ${fmtUsd(live.largestBuyUsd15m)} buy` : "";
+    return `Last trade ${timeAgo(live.lastMarketTradeAt)} ago${big}`;
   }
-  if (live.txns5m > 0) return `Son 5 dk: ${fmtCount(live.txns5m)} işlem`;
-  if (live.txns1h > 0) return `Son 1 saat: ${fmtCount(live.txns1h)} işlem`;
+  if (live.txns5m > 0) return `${fmtCount(live.txns5m)} trades in 5 min`;
+  if (live.txns1h > 0) return `${fmtCount(live.txns1h)} trades in 1 h`;
   return null;
 }
 
@@ -268,9 +268,9 @@ export const VideoCard = memo(function VideoCard({
           <MessageCircle className="size-8 fill-white/10 drop-shadow" />
         </RailButton>
         <RailButton
-          label={saved ? "Kaydedildi" : "Kaydet"}
+          label={saved ? "Saved" : "Save"}
           onClick={() => onSave(video)}
-          aria-label="Videoyu kaydet"
+          aria-label="Save video"
           aria-pressed={saved}
         >
           <Bookmark

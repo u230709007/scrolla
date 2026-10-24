@@ -33,7 +33,7 @@ export function VideoGrid({
           key={v.id}
           onClick={() => onSelect(v)}
           className="relative aspect-[3/4] overflow-hidden bg-white/5 text-left"
-          aria-label={v.narration || "Videoyu aç"}
+          aria-label={v.narration || "Open video"}
         >
           {v.posterUrl ? (
             <img
@@ -53,7 +53,7 @@ export function VideoGrid({
             <p className="line-clamp-2 text-[10px]">{v.narration || v.hook}</p>
             <span className="mt-1 flex items-center gap-1 text-[10px]">
               <Play size={11} />
-              {v.likes} beğeni
+              {v.likes} likes
             </span>
           </div>
         </button>
@@ -84,33 +84,33 @@ export function Discover({
   return (
     <div className="app-screen">
       <header className="px-5 pb-5">
-        <p className="eyebrow">YENİ BİR ŞEY KEŞFET</p>
+        <p className="eyebrow">FIND SOMETHING NEW</p>
         <h1 className="mt-2 text-3xl font-bold tracking-tight">
-          Keşfet<span className="text-dump">.</span>
+          Discover<span className="text-dump">.</span>
         </h1>
         <label className="mt-5 flex items-center gap-2 rounded-xl bg-white/[0.07] px-3 py-3">
           <Search size={18} className="text-white/40" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Video, token veya içerik ara"
+            placeholder="Search videos, tokens or captions"
             className="min-w-0 flex-1 bg-transparent text-sm outline-none"
-            aria-label="Video ara"
+            aria-label="Search videos"
           />
           {query && (
-            <button onClick={() => setQuery("")} aria-label="Aramayı temizle">
+            <button onClick={() => setQuery("")} aria-label="Clear search">
               <X size={16} />
             </button>
           )}
         </label>
         <p className="mt-5 text-xs text-white/40">
-          {filtered.length} video · Sana yeni bir bakış açısı
+          {filtered.length} videos
         </p>
       </header>
       <VideoGrid videos={filtered} onSelect={onSelect} />
       {!filtered.length && (
         <p className="px-5 py-12 text-center text-sm text-white/50">
-          Henüz eşleşen video yok.
+          No matching videos yet.
         </p>
       )}
       {hasMore && (
@@ -119,7 +119,7 @@ export function Discover({
           onClick={onMore}
           className="secondary-button mx-auto my-5 block"
         >
-          {loading ? "Yükleniyor…" : "Daha fazla keşfet"}
+          {loading ? "Loading…" : "Load more"}
         </button>
       )}
     </div>
@@ -186,10 +186,10 @@ export function CreatorProfile({
   return (
     <div className="app-screen">
       <header className="flex items-center justify-between px-5">
-        <span className="text-sm font-semibold">Hesabım</span>
+        <span className="text-sm font-semibold">My account</span>
         <button
           onClick={onSettings}
-          aria-label="Hesap ayarları"
+          aria-label="Account settings"
           className="p-2"
         >
           <Settings2 size={21} />
@@ -200,28 +200,28 @@ export function CreatorProfile({
           <User size={38} />
           <button
             onClick={onUpload}
-            aria-label="Video yükle"
+            aria-label="Upload a video"
             className="absolute -bottom-1 -right-1 rounded-full border-4 border-[#101012] bg-dump p-1"
           >
             <Plus size={15} />
           </button>
         </div>
         <h1 className="mt-4 text-xl font-bold">
-          {address ? shortAddr(address) : "Senin sahnen"}
+          {address ? shortAddr(address) : "Your stage"}
         </h1>
         <p className="mt-1 text-xs text-white/40">
           {address
             ? "@" + address.slice(2, 10).toLowerCase()
-            : "Hikâyeni paylaşmaya başla"}
+            : "Start sharing your story"}
         </p>
         <div className="mx-auto my-5 flex max-w-64 justify-around">
           <button onClick={() => (address ? onPeople("followers") : onLogin())}>
             <b className="text-lg">{stats.followers}</b>
-            <p className="text-[11px] text-white/45">Takipçi</p>
+            <p className="text-[11px] text-white/45">Followers</p>
           </button>
           <button onClick={() => (address ? onPeople("following") : onLogin())}>
             <b className="text-lg">{stats.following}</b>
-            <p className="text-[11px] text-white/45">Takip</p>
+            <p className="text-[11px] text-white/45">Following</p>
           </button>
         </div>
         <div className="flex justify-center gap-2">
@@ -229,17 +229,17 @@ export function CreatorProfile({
             onClick={onUpload}
             className="primary-button flex items-center gap-2"
           >
-            <Plus size={17} /> Video yükle
+            <Plus size={17} /> Upload video
           </button>
           <button
             onClick={address ? onSettings : onLogin}
             className="secondary-button"
           >
-            {address ? "Hesabı yönet" : "Giriş yap"}
+            {address ? "Manage account" : "Sign in"}
           </button>
         </div>
         <p className="mt-4 text-xs leading-relaxed text-white/45">
-          Bir fikir, bir video, yeni bir başlangıç.
+          One idea, one video, one new start.
         </p>
       </div>
       <button
@@ -248,9 +248,9 @@ export function CreatorProfile({
       >
         <Sparkles size={24} className="text-monad-soft" />
         <span className="flex-1">
-          <b className="text-sm">İçerik stüdyosu</b>
+          <b className="text-sm">Creator studio</b>
           <span className="mt-1 block text-[11px] text-white/45">
-            Videonu yükle · Yerel AI ile üret
+            Upload a video · Generate with local AI
           </span>
         </span>
         <Plus size={17} />
@@ -258,7 +258,7 @@ export function CreatorProfile({
       <div className="grid grid-cols-2 border-b border-white/10">
         {(
           [
-            ["videos", Grid3X3, "Videolar"],
+            ["videos", Grid3X3, "Videos"],
             ["saved", Bookmark, "Kaydedilenler"],
           ] as const
         ).map(([key, Icon, label]) => (
@@ -275,11 +275,11 @@ export function CreatorProfile({
       </div>
       {status === "loading" && tab === "videos" ? (
         <p className="p-8 text-center text-sm text-white/40">
-          Videolar yükleniyor…
+          Loading videos…
         </p>
       ) : status === "error" && tab === "videos" ? (
         <p className="p-8 text-center text-sm text-dump">
-          Videolar alınamadı. Profili yeniden açmayı dene.
+          Couldn&apos;t load videos. Try reopening your profile.
         </p>
       ) : shown.length ? (
         <VideoGrid videos={shown} onSelect={onSelect} />
@@ -290,13 +290,13 @@ export function CreatorProfile({
           </div>
           <p className="text-sm font-semibold">
             {tab === "videos"
-              ? "İlk videon burada başlıyor"
-              : "İlhamını burada biriktir"}
+              ? "Your first video starts here"
+              : "Collect what inspires you"}
           </p>
           <p className="mt-2 text-xs leading-5 text-white/40">
             {tab === "videos"
-              ? "Videonu yükle, açıklamanı ekle ve akışta paylaş."
-              : "Akıştaki kaydet simgesine dokun. Kaydettiklerin bu tarayıcıda saklanır."}
+              ? "Upload a video, add a caption and post it to the feed."
+              : "Tap the save icon on a reel to keep it here."}
           </p>
         </div>
       )}
@@ -336,7 +336,7 @@ export function UploadScreen({
       value.size > 50 * 1024 * 1024 ||
       !value.size
     ) {
-      setError("En fazla 50 MB boyutunda bir MP4 video seç.");
+      setError("Choose an MP4 video of up to 50 MB.");
       return;
     }
     setFile(value);
@@ -362,7 +362,7 @@ export function UploadScreen({
       const ticket = await json({ action: "presign", size: file.size, type: file.type });
       let response: Response;
       if (!ticket.ok && ticket.status !== 404) {
-        throw Error((await ticket.json()).error || "Yükleme başarısız.");
+        throw Error((await ticket.json()).error || "Upload failed.");
       }
       if (ticket.ok) {
         const { id, provider, pathname, uploadUrl } = await ticket.json();
@@ -373,7 +373,7 @@ export function UploadScreen({
             contentType: "video/mp4",
             handleUploadUrl: "/api/uploads/blob",
           }).catch(() => {
-            throw Error("Video depolamaya yüklenemedi.");
+            throw Error("Couldn't upload the video to storage.");
           });
         } else {
           const put = await fetch(uploadUrl, {
@@ -381,7 +381,7 @@ export function UploadScreen({
             headers: { "Content-Type": "video/mp4" },
             body: file,
           });
-          if (!put.ok) throw Error("Video depolamaya yüklenemedi.");
+          if (!put.ok) throw Error("Couldn't upload the video to storage.");
         }
         response = await json({ action: "complete", id, caption });
       } else {
@@ -391,10 +391,10 @@ export function UploadScreen({
         response = await fetch("/api/uploads", { method: "POST", body });
       }
       const data = await response.json();
-      if (!response.ok) throw Error(data.error || "Yükleme başarısız.");
+      if (!response.ok) throw Error(data.error || "Upload failed.");
       onPublished(data.video);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Bağlantı kurulamadı.");
+      setError(e instanceof Error ? e.message : "Couldn't connect.");
     } finally {
       setBusy(false);
     }
@@ -410,20 +410,20 @@ export function UploadScreen({
         >
           <ArrowLeft size={22} />
         </button>
-        <h1 className="font-semibold">İçerik stüdyosu</h1>
+        <h1 className="font-semibold">Creator studio</h1>
         <span className="w-9" />
       </header>
       <div className="px-5">
         <p className="eyebrow">SIRA SENDE</p>
         <h2 className="mt-2 text-3xl font-bold tracking-tight">
-          Fikrini akışa taşı.
+          Bring your idea to the feed.
         </h2>
         <div className="my-6 grid grid-cols-2 rounded-xl bg-white/5 p-1">
           <button
             onClick={() => setMode("upload")}
             className={`rounded-lg py-2.5 text-xs font-semibold ${mode === "upload" ? "bg-white text-black" : "text-white/50"}`}
           >
-            Video yükle
+            Upload video
           </button>
           <button
             onClick={() => setMode("ai")}
@@ -439,7 +439,7 @@ export function UploadScreen({
               type="file"
               accept="video/mp4,.mp4"
               className="hidden"
-              aria-label="Video dosyası"
+              aria-label="Video file"
               onChange={(e) => select(e.target.files?.[0])}
               disabled={busy}
             />
@@ -456,7 +456,7 @@ export function UploadScreen({
                   onClick={() => input.current?.click()}
                   className="secondary-button mt-3 w-full"
                 >
-                  Videoyu değiştir
+                  Change video
                 </button>
               </div>
             ) : (
@@ -473,23 +473,23 @@ export function UploadScreen({
                 <span className="mb-4 rounded-2xl bg-dump/10 p-4 text-dump">
                   <Upload size={27} />
                 </span>
-                <b className="text-sm">Yüklemek için video seç</b>
+                <b className="text-sm">Choose a video to upload</b>
                 <span className="mt-2 text-xs text-white/40">
-                  veya dosyanı buraya sürükle
+                  or drag your file here
                 </span>
                 <span className="mt-5 text-[10px] text-white/30">
-                  MP4 · En fazla 50 MB · Dikey video önerilir
+                  MP4 · Up to 50 MB · Vertical works best
                 </span>
               </button>
             )}
             <label className="mt-6 block text-xs font-semibold">
-              Açıklama
+              Caption
               <textarea
                 disabled={busy}
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
                 maxLength={300}
-                placeholder="Videonun hikâyesini anlat… #alphascroll"
+                placeholder="Tell the story behind your video… #alphascroll"
                 rows={3}
                 className="mt-2 w-full resize-none rounded-xl border border-white/10 bg-white/5 p-3 text-sm font-normal outline-none focus:border-white/30"
               />
@@ -498,8 +498,7 @@ export function UploadScreen({
               {caption.length}/300
             </p>
             <p className="my-4 text-xs leading-5 text-white/40">
-              Paylaştığın video profilinde ve herkesin görebildiği ana akışta
-              görünür.
+              Your video appears on your profile and in the public feed.
             </p>
             {error && (
               <p role="alert" className="mb-4 text-sm text-dump">
@@ -513,31 +512,31 @@ export function UploadScreen({
             >
               {busy && <Loader2 size={16} className="animate-spin" />}
               {busy
-                ? "Yükleniyor…"
+                ? "Uploading…"
                 : address
-                  ? "Paylaş"
-                  : "Paylaşmak için giriş yap"}
+                  ? "Post"
+                  : "Sign in to post"}
             </button>
           </>
         ) : (
           <div className="rounded-2xl border border-monad/25 bg-monad/5 p-5">
             <Sparkles className="mb-4 text-monad-soft" size={30} />
             <h3 className="text-lg font-bold">
-              Yerel üretim, senin kontrolünde.
+              Local generation, under your control.
             </h3>
             <p className="mt-3 text-sm leading-6 text-white/55">
-              Ollama senaryoyu ve görsel istemini yazar. Video işçisi bunları
-              ses, görsel ve altyazıyla birleştirip MP4 oluşturur.
+              Ollama writes the script and the image prompt. The video worker
+              turns them into an MP4 with voice, visuals and captions.
             </p>
             <div className="my-5 space-y-3 text-xs text-white/65">
-              <p>01 / Ollama’da bir metin modeli çalıştır.</p>
-              <p>02 / Video işçisinde modelini yapılandır.</p>
-              <p>03 / Oluşturulan video otomatik olarak akışa gelir.</p>
+              <p>01 / Run a text model in Ollama.</p>
+              <p>02 / Set that model in the video worker.</p>
+              <p>03 / The finished video shows up in the feed.</p>
             </div>
             <p className="rounded-xl bg-black/30 p-3 text-xs leading-5 text-white/45">
-              Bu ekran üretim başlatmaz. Yerel işçi bağlantısı hazır; model
-              kurulumu ve çalıştırma adımları proje README dosyasında. Ses ve
-              görsel servisleri internet kullanabilir.
+              This screen doesn&apos;t start a job. Model setup and run steps are in
+              the project README. Voice and image services may use the
+              internet.
             </p>
           </div>
         )}
