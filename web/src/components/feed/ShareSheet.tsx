@@ -229,7 +229,7 @@ export function PeopleSheet({
 const NOTICE: Record<InboxItem["kind"], string> = {
   share: "sent you a video",
   follow: "started following you",
-  join: "joined AlphaScroll",
+  join: "joined Scrolla",
 };
 
 /** Notifications: reels other users sent me, new followers, newly joined users. */

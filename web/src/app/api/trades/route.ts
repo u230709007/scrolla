@@ -39,7 +39,7 @@ export async function POST(req: Request) {
     if (VAULT_ADDRESS && tradableAddress(token)) {
       return Response.json({ error: "This token trades on-chain; demo trades are disabled" }, { status: 400 });
     }
-    // fake buys of mainnet tokens would show up as live AlphaScroll activity
+    // fake buys of mainnet tokens would show up as live Scrolla activity
     if (isForeignToken(token)) {
       return Response.json({ error: "Only testnet tokens can be bought" }, { status: 400 });
     }

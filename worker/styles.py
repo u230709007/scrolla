@@ -1,5 +1,5 @@
 """
-AlphaScroll — video styles (the mood follows the chart)
+Scrolla — video styles (the mood follows the chart)
 =======================================================
 
 Every video gets a style picked from the token's 24h move, and the style

@@ -2,7 +2,7 @@ import "server-only";
 import { compareActivity, isLive, liveActivity, tokenKey } from "./activity";
 import { MEDIA_BASE_URL } from "./config";
 import { appDb, workerDb } from "./db";
-import type { FeedPage, FeedVideo, TokenInfo } from "@/lib/types";
+import type { FeedCategory, FeedPage, FeedVideo, TokenInfo } from "@/lib/types";
 
 type VideoRow = {
   id: string;
@@ -91,7 +91,7 @@ const LIVE_CANDIDATES = 200;
 
 /**
  * First page of the feed: one video per token that is trading right now
- * (newest AlphaScroll buy first, then DexScreener 5m/1h trades), topped up
+ * (newest Scrolla buy first, then DexScreener 5m/1h trades), topped up
  * with the newest videos. Later pages continue chronologically via
  * listVideos, so pagination stays stable while the ranking moves.
  */
@@ -215,6 +215,55 @@ export async function listVideos({
       (combined.length > limit || rows.length > limit) && last
         ? `${last.createdAt}|${last.id}`
         : null,
+  };
+}
+
+/** Smallest single buy (USD) that makes a reel a whales reel. */
+const WHALE_MIN_USD = 100;
+
+/** Token conditions per category, on the stats the worker recorded at render time.
+ * Whales: the biggest buy in the trades window, stored in token_json. */
+const CATEGORY_WHERE: Record<Exclude<FeedCategory, "live">, string> = {
+  gainers: "change_24h > 0",
+  losers: "change_24h < 0",
+  whales: `CAST(json_extract(token_json, '$.trades.largest_buy_usd') AS REAL) >= ${WHALE_MIN_USD}`,
+};
+
+/** Worker reels of one category, newest first. Uploads have no token, so they're left out.
+ * Cursor = "<created_at>|<id>" like listVideos. */
+export async function listCategory({
+  category,
+  cursor,
+  limit = 10,
+  viewer,
+}: {
+  category: Exclude<FeedCategory, "live">;
+  cursor?: string | null;
+  limit?: number;
+  viewer?: string | null;
+}): Promise<FeedPage> {
+  const db = workerDb();
+  if (!db) return { videos: [], nextCursor: null };
+  const extraCols = (await hasColumn("videos", "format")) ? ", format, persona" : "";
+  const [cAt, cId] = cursor ? cursor.split("|") : [null, null];
+  const where = CATEGORY_WHERE[category];
+  const rows =
+    cAt && cId
+      ? await db.all<VideoRow>(
+          `SELECT *${extraCols} FROM videos WHERE ${where} AND (created_at, id) < (?, ?)
+           ORDER BY created_at DESC, id DESC LIMIT ?`,
+          cAt, cId, limit + 1,
+        )
+      : await db.all<VideoRow>(
+          `SELECT *${extraCols} FROM videos WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT ?`,
+          limit + 1,
+        );
+  const page = rows.slice(0, limit);
+  const social = await socialCounts(page.map((r) => r.id), viewer ?? null);
+  const last = page.at(-1);
+  return {
+    videos: page.map((r) => ({ ...rowToVideo(r), ...social(r.id) })),
+    nextCursor: rows.length > limit && last ? `${last.created_at}|${last.id}` : null,
   };
 }
 

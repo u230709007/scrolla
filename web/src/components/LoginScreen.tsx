@@ -74,7 +74,7 @@ export function LoginScreen({ onGuest }: { onGuest: () => void }) {
           animate={{ opacity: 1, y: 0 }}
           className="text-4xl font-black tracking-tight"
         >
-          Alpha<span className="text-monad">Scroll</span>
+          Scroll<span className="text-monad">a</span>
         </motion.h1>
         <p className="mt-2 text-white/60">Scroll the alpha. Double-tap to ape in.</p>
 
@@ -100,7 +100,7 @@ export function LoginScreen({ onGuest }: { onGuest: () => void }) {
         </motion.button>
         {!walletFound && (
           <p className="mt-2 text-center text-xs text-white/50">
-            AlphaScroll uses the MetaMask browser extension. Install it, then reload this page.
+            Scrolla uses the MetaMask browser extension. Install it, then reload this page.
           </p>
         )}
         {walletFound && (

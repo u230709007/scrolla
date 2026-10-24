@@ -1,5 +1,5 @@
 """
-AlphaScroll — talking mascot avatars (PNGtuber style, CPU-only, zero cost)
+Scrolla — talking mascot avatars (PNGtuber style, CPU-only, zero cost)
 ==========================================================================
 
 A persona is drawn procedurally with Pillow into a small set of sprites

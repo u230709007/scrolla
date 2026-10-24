@@ -1,5 +1,5 @@
 """
-AlphaScroll — local GPU generation (optional, zero cost, no rate limits)
+Scrolla — local GPU generation (optional, zero cost, no rate limits)
 =======================================================================
 
   image  : SDXL-Lightning 4-step (ByteDance) — 768x1344 poster in a few seconds,

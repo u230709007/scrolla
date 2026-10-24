@@ -47,7 +47,7 @@ export async function signInWithEthereum(): Promise<Address> {
   const message = createSiweMessage({
     domain: window.location.host,
     address,
-    statement: "Sign in to AlphaScroll.",
+    statement: "Sign in to Scrolla.",
     uri: window.location.origin,
     version: "1",
     chainId: CHAIN.id,

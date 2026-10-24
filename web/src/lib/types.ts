@@ -34,7 +34,7 @@ export type FeedVideo = {
 };
 
 export type LiveActivity = {
-  /** Newest AlphaScroll buy of this token within the live window. */
+  /** Newest Scrolla buy of this token within the live window. */
   lastTradeAt: string | null;
   appTrades1h: number;
   /** Market-wide buys + sells from DexScreener. */
@@ -46,6 +46,10 @@ export type LiveActivity = {
 };
 
 export type FeedPage = { videos: FeedVideo[]; nextCursor: string | null };
+
+/** live: what trades right now; the others filter worker reels by their token. */
+export const FEED_CATEGORIES = ["live", "gainers", "losers", "whales"] as const;
+export type FeedCategory = (typeof FEED_CATEGORIES)[number];
 
 export type Comment = { id: number; address: string; body: string; createdAt: string };
 

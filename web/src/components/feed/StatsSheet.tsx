@@ -67,7 +67,7 @@ export function StatsSheet({
 
       {t.chain === "monad-testnet" && (
         <p className="mt-2 text-[11px] text-white/40">
-          Testnet pool price × real MON/USD · volume = AlphaScroll buys
+          Testnet pool price × real MON/USD · volume = Scrolla buys
         </p>
       )}
 

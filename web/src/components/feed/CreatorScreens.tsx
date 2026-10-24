@@ -489,7 +489,7 @@ export function UploadScreen({
                 value={caption}
                 onChange={(e) => setCaption(e.target.value)}
                 maxLength={300}
-                placeholder="Tell the story behind your video… #alphascroll"
+                placeholder="Tell the story behind your video… #scrolla"
                 rows={3}
                 className="mt-2 w-full resize-none rounded-xl border border-white/10 bg-white/5 p-3 text-sm font-normal outline-none focus:border-white/30"
               />

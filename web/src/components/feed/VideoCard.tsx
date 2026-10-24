@@ -43,7 +43,7 @@ function NetworkTag({ video }: { video: FeedVideo }) {
 
 /** Why this video sits in the live section, freshest signal first. */
 function liveLabel(live: LiveActivity): string | null {
-  if (live.lastTradeAt) return `Bought on AlphaScroll ${timeAgo(live.lastTradeAt)} ago`;
+  if (live.lastTradeAt) return `Bought on Scrolla ${timeAgo(live.lastTradeAt)} ago`;
   if (live.lastMarketTradeAt) {
     const big = live.largestBuyUsd15m >= 50 ? ` · ${fmtUsd(live.largestBuyUsd15m)} buy` : "";
     return `Last trade ${timeAgo(live.lastMarketTradeAt)} ago${big}`;
@@ -158,7 +158,7 @@ export const VideoCard = memo(function VideoCard({
     ? video.creator.slice(0, 10)
     : video.persona
       ? (PERSONA_NAMES[video.persona] ?? video.persona)
-      : "alphascroll.ai";
+      : "scrolla.ai";
   const up = video.token.change24h >= 0;
 
   return (

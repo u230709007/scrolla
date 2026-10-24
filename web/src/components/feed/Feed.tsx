@@ -567,7 +567,7 @@ export function Feed({
     async (v: FeedVideo) => {
       const url = new URL(v.videoUrl, window.location.origin).href;
 
-      const text = `$${v.token.symbol} on AlphaScroll`;
+      const text = `$${v.token.symbol} on Scrolla`;
 
       try {
         if (navigator.share) await navigator.share({ title: text, url });

@@ -1,8 +1,8 @@
-# AlphaScroll
+# Scrolla
 
 **Scroll a memecoin, double-tap, own it.** A TikTok-style feed for Monad where every reel is about a live token, an AI pipeline makes the reels on its own, and a double-tap is a real on-chain buy.
 
-![AlphaScroll: mobile feed, double-tap buy with confetti, comments](docs/screenshot.png)
+![Scrolla: mobile feed, double-tap buy with confetti, comments](docs/screenshot.png)
 
 | | |
 |---|---|
@@ -20,14 +20,14 @@ Memecoin traders find tokens on X, Telegram and Farcaster, then switch to a DEX,
 
 **Who it's for:** people who already trade small amounts of memecoins on their phone and spend their day scrolling short video.
 
-**What AlphaScroll does:** it puts discovery and execution in the same gesture. The feed shows one token per reel, with live price, volume and on-chain buyer activity. Double-tap means "like and buy". The tokens land in your own wallet.
+**What Scrolla does:** it puts discovery and execution in the same gesture. The feed shows one token per reel, with live price, volume and on-chain buyer activity. Double-tap means "like and buy". The tokens land in your own wallet.
 
-**Why it lasts past today:** the feed fills itself. A worker picks tokens with real on-chain activity (fresh trades, AlphaScroll buys, Farcaster buzz), writes a script, voices it and renders a vertical video, every few minutes, with free tools only. Creators can also upload their own reels. There's no content team to run out of.
+**Why it lasts past today:** the feed fills itself. A worker picks tokens with real on-chain activity (fresh trades, Scrolla buys, Farcaster buzz), writes a script, voices it and renders a vertical video, every few minutes, with free tools only. Creators can also upload their own reels. There's no content team to run out of.
 
 ## How it works
 
 ```
- DexScreener · GeckoTerminal trades · Farcaster · AlphaScroll buys
+ DexScreener · GeckoTerminal trades · Farcaster · Scrolla buys
                          │
                          ▼
  ┌──────────────── worker/ (Python) ────────────────┐
@@ -50,7 +50,7 @@ Memecoin traders find tokens on X, Telegram and Farcaster, then switch to a DEX,
                         └─► trades feed back into which token gets the next reel
 ```
 
-The loop is the point: what people buy on AlphaScroll decides what the worker films next, so the feed follows real demand instead of a schedule.
+The loop is the point: what people buy on Scrolla decides what the worker films next, so the feed follows real demand instead of a schedule.
 
 ## Why it needs Monad
 
@@ -58,7 +58,7 @@ The chain isn't a payment rail bolted on at the end. Three parts of the product 
 
 1. **The vault enforces the spending rules, not our server.** `AlphaScrollSessionVault` holds the user's MON and lets a browser-generated session key do exactly one thing: `buy(token, amountIn, minOut, deadline)`. Expiry, per-trade cap and total budget are checked in the contract. Bought tokens go straight to the owner's address. A leaked key can't withdraw a single wei. No backend could give the same guarantee.
 2. **Trades are verified from chain state.** `/api/trades` doesn't trust the client. It fetches the receipt from the RPC and accepts the trade only if it contains a `Bought` event from our vault for the signed-in wallet. Amounts come from the log. Trade counts and the "live buyers" ranking can't be faked.
-3. **Self-custody.** The user keeps their tokens in their own wallet. AlphaScroll never holds them.
+3. **Self-custody.** The user keeps their tokens in their own wallet. Scrolla never holds them.
 4. **Monad: sub-second blocks** make "double-tap → confetti → tokens in wallet" feel like a like button, not a trade ticket. On a 12-second chain, the gesture doesn't work.
 5. **Monad: cheap gas** makes 0.05 MON impulse buys reasonable. Gas is about 0.015 MON per buy at 100 gwei, small enough to pre-fund a session key once (0.1 MON stipend) and forget about it.
 
@@ -75,7 +75,7 @@ We also built around Monad specifics rather than ignoring them: Monad bills the 
 | AI video worker (token pick → script → voice → image → avatar → MP4) | **Live**: renders a reel in about a minute, on a loop |
 | Feed, likes, comments, follows, share-to-user inbox, notifications, saved reels | **Live**, stored in SQLite locally or Turso in production |
 | Creator MP4 uploads (Vercel Blob / R2 / local disk) | **Live** |
-| Live token stats | **Live**: DexScreener and GeckoTerminal trades for mainnet tokens; for testnet tokens, price and liquidity read from the pool's reserves (× real MON/USD from CoinGecko) and volume from AlphaScroll's on-chain buys |
+| Live token stats | **Live**: DexScreener and GeckoTerminal trades for mainnet tokens; for testnet tokens, price and liquidity read from the pool's reserves (× real MON/USD from CoinGecko) and volume from Scrolla's on-chain buys |
 | Reels about mainnet tokens (`--source dexscreener`) | Market data is real; buying them is **disabled** while the app runs on testnet |
 | Mock tokens (when no deployment file exists) | **Demo mode**: confetti and a trade recorded as `demo`, no transaction |
 
@@ -83,7 +83,7 @@ We also built around Monad specifics rather than ignoring them: Monad bills the 
 
 - **Discovery and execution in one gesture.** Most "SocialFi" apps put a buy button next to content. Here the content's native gesture, the double-tap, is the trade.
 - **A feed nobody has to feed.** The reels are made by an autonomous pipeline that only uses free tools (Groq, OpenRouter free models, Edge-TTS, Pollinations, MoviePy), with a fallback at every step so it never stops.
-- **On-chain demand steers content.** The worker ranks candidates by recent swaps, AlphaScroll buys and Farcaster cashtag mentions, so the next reel is about what people are actually buying.
+- **On-chain demand steers content.** The worker ranks candidates by recent swaps, Scrolla buys and Farcaster cashtag mentions, so the next reel is about what people are actually buying.
 - **VTuber-style mascots drawn in code.** The `avatar` format animates Monad-community mascots (Froggy Nad, Chog Cat, Nad Blob) with Pillow: lip-sync from voice loudness, blinking, bounce on loud syllables. No GPU or model download.
 - **Bounded session keys instead of "trust us" custody.** One wallet confirmation gives the browser a key that can only buy, only up to a budget, only until expiry.
 
@@ -162,7 +162,7 @@ cd web && npm test              # 5 tests: live-feed ranking, uploads
 
 | Step | Tool | Fallback |
 |---|---|---|
-| Token pick | Monad testnet tokens, or DexScreener + GeckoTerminal trades + Farcaster (Neynar) + AlphaScroll buys | Mock token |
+| Token pick | Monad testnet tokens, or DexScreener + GeckoTerminal trades + Farcaster (Neynar) + Scrolla buys | Mock token |
 | Script + image prompt | Local Ollama (optional), Groq `openai/gpt-oss-120b`, OpenRouter free models | Template script |
 | Voice + word timings | Fish Audio S2 + Groq Whisper, or Edge-TTS | Silent track with estimated timings |
 | Background | Pollinations.ai, SDXL-Lightning on a local GPU (optional) | Procedural neon chart |

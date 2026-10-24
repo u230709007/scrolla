@@ -11,17 +11,6 @@ export default function Home() {
         <div className="absolute -right-24 top-0 size-[380px] rounded-full bg-dump/10 blur-[120px]" />
       </div>
 
-      <aside className="absolute left-10 top-1/2 hidden max-w-xs -translate-y-1/2 xl:block">
-        <p className="text-sm font-semibold uppercase tracking-[0.3em] text-monad-soft">AlphaScroll</p>
-        <h1 className="mt-3 text-4xl font-black leading-tight">
-          AI reels for <span className="text-pump">Monad</span> degens.
-        </h1>
-        <p className="mt-4 text-white/60">
-          An autonomous agent watches the market and turns the hottest tokens into short videos. Scroll the alpha,
-          double-tap to ape in.
-        </p>
-      </aside>
-
       <PhoneFrame>
         <AlphaScrollApp />
       </PhoneFrame>

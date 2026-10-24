@@ -3,7 +3,7 @@ import { Providers } from "@/components/Providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AlphaScroll",
+  title: "Scrolla",
   description: "AI-generated alpha reels for Monad degens. Scroll, double-tap, ape in.",
 };
 

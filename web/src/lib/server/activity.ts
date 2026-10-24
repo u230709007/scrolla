@@ -129,7 +129,7 @@ async function dexTxns(tokens: TokenInfo[]): Promise<Map<string, DexTxns>> {
   return out;
 }
 
-/** Live trading activity per token key: AlphaScroll buys from the last
+/** Live trading activity per token key: Scrolla buys from the last
  * LIVE_WINDOW_MIN minutes, market-wide trade counts from DexScreener, and for
  * the busiest tokens the exact time of the last on-chain trade from GeckoTerminal. */
 export async function liveActivity(tokens: TokenInfo[]): Promise<Map<string, LiveActivity>> {

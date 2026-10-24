@@ -27,7 +27,7 @@ async function monUsd() {
   return monCache; // stale beats nothing when CoinGecko rate-limits
 }
 
-/** MON in / tokens out (wei) of the last 24h of on-chain AlphaScroll buys. */
+/** MON in / tokens out (wei) of the last 24h of on-chain Scrolla buys. */
 async function buys24h(token: Address) {
   const since = new Date(Date.now() - 86_400_000).toISOString();
   const rows = await (await appDb()).all<{ amount_in_wei: string; amount_out: string | null }>(
