@@ -10,9 +10,10 @@ const toComment = (r: Row): Comment => ({ id: Number(r.id), address: r.address, 
 
 export async function GET(_req: Request, ctx: RouteContext<"/api/videos/[id]/comments">) {
   const { id } = await ctx.params;
-  const rows = appDb()
-    .prepare("SELECT id, address, body, created_at FROM comments WHERE video_id = ? ORDER BY id DESC LIMIT 100")
-    .all(id) as unknown as Row[];
+  const rows = await (await appDb()).all<Row>(
+    "SELECT id, address, body, created_at FROM comments WHERE video_id = ? ORDER BY id DESC LIMIT 100",
+    id,
+  );
   return Response.json({ comments: rows.map(toComment) }, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -21,7 +22,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/videos/[id]/com
   if (!address) return Response.json({ error: "Sign in to comment" }, { status: 401 });
 
   const { id } = await ctx.params;
-  if (!videoExists(id)) return Response.json({ error: "Video not found" }, { status: 404 });
+  if (!(await videoExists(id))) return Response.json({ error: "Video not found" }, { status: 404 });
 
   const { body } = (await req.json().catch(() => ({}))) as { body?: unknown };
   // Strip control characters, collapse whitespace.
@@ -30,8 +31,9 @@ export async function POST(req: Request, ctx: RouteContext<"/api/videos/[id]/com
     return Response.json({ error: `Comment must be 1-${MAX_LEN} characters` }, { status: 400 });
   }
 
-  const row = appDb()
-    .prepare("INSERT INTO comments (video_id, address, body) VALUES (?, ?, ?) RETURNING id, address, body, created_at")
-    .get(id, address, text) as unknown as Row;
+  const row = (await (await appDb()).get<Row>(
+    "INSERT INTO comments (video_id, address, body) VALUES (?, ?, ?) RETURNING id, address, body, created_at",
+    id, address, text,
+  ))!;
   return Response.json({ comment: toComment(row) }, { status: 201 });
 }

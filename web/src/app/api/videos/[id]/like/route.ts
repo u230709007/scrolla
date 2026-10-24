@@ -8,16 +8,16 @@ export async function POST(req: Request, ctx: RouteContext<"/api/videos/[id]/lik
   if (!address) return Response.json({ error: "Sign in to like videos" }, { status: 401 });
 
   const { id } = await ctx.params;
-  if (!videoExists(id)) return Response.json({ error: "Video not found" }, { status: 404 });
+  if (!(await videoExists(id))) return Response.json({ error: "Video not found" }, { status: 404 });
 
   const body = (await req.json().catch(() => ({}))) as { liked?: boolean };
-  const db = appDb();
-  const already = !!db.prepare("SELECT 1 FROM likes WHERE video_id = ? AND address = ?").get(id, address);
+  const db = await appDb();
+  const already = !!(await db.get("SELECT 1 FROM likes WHERE video_id = ? AND address = ?", id, address));
   const liked = typeof body.liked === "boolean" ? body.liked : !already;
 
-  if (liked && !already) db.prepare("INSERT INTO likes (video_id, address) VALUES (?, ?)").run(id, address);
-  if (!liked && already) db.prepare("DELETE FROM likes WHERE video_id = ? AND address = ?").run(id, address);
+  if (liked && !already) await db.run("INSERT INTO likes (video_id, address) VALUES (?, ?)", id, address);
+  if (!liked && already) await db.run("DELETE FROM likes WHERE video_id = ? AND address = ?", id, address);
 
-  const { n } = db.prepare("SELECT COUNT(*) AS n FROM likes WHERE video_id = ?").get(id) as { n: number };
+  const { n } = (await db.get<{ n: number }>("SELECT COUNT(*) AS n FROM likes WHERE video_id = ?", id))!;
   return Response.json({ liked, likes: Number(n) });
 }

@@ -1,0 +1,10 @@
+# Optional local generation (local_gen.py): SDXL-Lightning images + LTX-Video motion.
+# Install torch with CUDA first:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+# then: pip install -r requirements-gpu.txt   (~32 GB of weights download on first use)
+diffusers>=0.34
+transformers>=4.48,<5
+accelerate
+bitsandbytes        # 8-bit T5 text encoder so LTX-Video fits in 8 GB VRAM
+sentencepiece
+protobuf

@@ -67,7 +67,7 @@ EYES = ((230, 330), (410, 330))
 MOUTH_CENTER = (320, 478)
 
 
-def _draw_sprite(p: Persona, mouth: int, eyes_open: bool, s: float) -> Image.Image:
+def _draw_sprite(p: Persona, mouth: int, eyes_open: bool, s: float, mood: str = "default") -> Image.Image:
     def S(*v: float) -> list[float]:
         return [x * s for x in v]
 
@@ -103,8 +103,9 @@ def _draw_sprite(p: Persona, mouth: int, eyes_open: bool, s: float) -> Image.Ima
         if eyes_open:
             d.ellipse(S(ex - 60, ey - 62, ex + 60, ey + 62), fill="white", outline=OUTLINE, width=ow)
             px = ex + (14 if ex < 320 else -14)
-            d.ellipse(S(px - 30, ey - 22, px + 30, ey + 38), fill=OUTLINE)
-            d.ellipse(S(px - 16, ey - 12, px + 2, ey + 6), fill="white")
+            py = ey + (14 if mood == "sad" else 0)  # sad eyes look down
+            d.ellipse(S(px - 30, py - 22, px + 30, py + 38), fill=OUTLINE)
+            d.ellipse(S(px - 16, py - 12, px + 2, py + 6), fill="white")
         else:
             d.arc(S(ex - 50, ey - 30, ex + 50, ey + 40), 200, 340, fill=OUTLINE, width=int(12 * s))
 
@@ -116,7 +117,17 @@ def _draw_sprite(p: Persona, mouth: int, eyes_open: bool, s: float) -> Image.Ima
         d.line(S(60, 320, 145, 315), fill=(12, 12, 16, 255), width=int(14 * s))
         d.line(S(495, 315, 580, 320), fill=(12, 12, 16, 255), width=int(14 * s))
 
-    _draw_mouth(d, mouth, s)
+    if mood == "sad":
+        # Brows tilted up toward the middle + a tear under each eye
+        for ex, ey in EYES:
+            inner = 1 if ex < 320 else -1
+            d.line(S(ex - 55 * inner, ey - 82, ex + 45 * inner, ey - 108), fill=OUTLINE, width=int(13 * s))
+            tx, ty = ex + 20 * inner, ey + 78
+            d.polygon(S(tx, ty - 26, tx - 14, ty + 4, tx + 14, ty + 4), fill=(120, 200, 255, 255))
+            d.ellipse(S(tx - 14, ty - 8, tx + 14, ty + 20), fill=(120, 200, 255, 255))
+            d.ellipse(S(tx - 6, ty - 2, tx + 1, ty + 6), fill=(235, 248, 255, 255))
+
+    _draw_mouth(d, mouth, s, mood)
 
     if p.accessory == "cap":
         cap = (40, 40, 60, 255)
@@ -131,11 +142,15 @@ def _draw_sprite(p: Persona, mouth: int, eyes_open: bool, s: float) -> Image.Ima
     return img
 
 
-def _draw_mouth(d: ImageDraw.ImageDraw, state: int, s: float) -> None:
+def _draw_mouth(d: ImageDraw.ImageDraw, state: int, s: float, mood: str = "default") -> None:
     cx, cy = MOUTH_CENTER
     if state == 0:
-        d.arc([(cx - 60) * s, (cy - 40) * s, (cx + 60) * s, (cy + 30) * s], 20, 160,
-              fill=OUTLINE, width=int(11 * s))
+        if mood == "sad":  # frown
+            d.arc([(cx - 50) * s, (cy + 5) * s, (cx + 50) * s, (cy + 70) * s], 200, 340,
+                  fill=OUTLINE, width=int(11 * s))
+        else:
+            d.arc([(cx - 60) * s, (cy - 40) * s, (cx + 60) * s, (cy + 30) * s], 20, 160,
+                  fill=OUTLINE, width=int(11 * s))
         return
     w, h = {1: (42, 24), 2: (60, 46), 3: (74, 68)}[state]
     box = [(cx - w) * s, (cy - h * 0.6) * s, (cx + w) * s, (cy + h * 1.4) * s]
@@ -162,13 +177,13 @@ def _sticker_outline(img: Image.Image, px: int) -> Image.Image:
     return out
 
 
-def build_sprites(p: Persona, width: int) -> dict[tuple[int, bool], Image.Image]:
+def build_sprites(p: Persona, width: int, mood: str = "default") -> dict[tuple[int, bool], Image.Image]:
     """Pre-render every (mouth, eyes_open) combination at final pixel width."""
     scale = width / UNIT_W
     sprites = {}
     for mouth in range(4):
         for eyes_open in (True, False):
-            big = _draw_sprite(p, mouth, eyes_open, scale * SUPERSAMPLE)
+            big = _draw_sprite(p, mouth, eyes_open, scale * SUPERSAMPLE, mood)
             small = big.resize((int(UNIT_W * scale), int(UNIT_H * scale)), Image.LANCZOS)
             sprites[(mouth, eyes_open)] = _sticker_outline(small, max(4, int(9 * scale)))
     return sprites
@@ -237,12 +252,14 @@ def blink_mask(n_frames: int, fps: int, seed: int) -> np.ndarray:
 class AvatarAnimator:
     """Returns the posed RGBA avatar for any frame index."""
 
-    def __init__(self, persona: Persona, width: int, env: np.ndarray, fps: int, seed: int = 0):
-        self.sprites = build_sprites(persona, width)
+    def __init__(self, persona: Persona, width: int, env: np.ndarray, fps: int, seed: int = 0,
+                 mood: str = "default", energy: float = 1.0):
+        self.sprites = build_sprites(persona, width, mood)
         self.env = env
         self.mouth = mouth_states(env)
         self.closed = blink_mask(len(env), fps, seed)
         self.fps = fps
+        self.energy = energy  # scales bounce/wobble: hyped vs heartbroken
 
     def frame(self, i: int) -> Image.Image:
         i = min(max(i, 0), len(self.env) - 1)
@@ -253,11 +270,11 @@ class AvatarAnimator:
         sx, sy = 1 - 0.02 * e, 1 + 0.045 * e  # squash & stretch on loud syllables
         w, h = sprite.size
         posed = sprite.resize((int(w * sx), int(h * sy)), Image.BILINEAR)
-        angle = 2.5 * math.sin(2 * math.pi * 0.55 * t) + 2.0 * e * math.sin(2 * math.pi * 2.1 * t)
+        angle = self.energy * (2.5 * math.sin(2 * math.pi * 0.55 * t) + 2.0 * e * math.sin(2 * math.pi * 2.1 * t))
         return posed.rotate(angle, resample=Image.BILINEAR, expand=True)
 
     def offset_y(self, i: int) -> int:
         """Idle breathing + jump while talking (negative = up)."""
         i = min(max(i, 0), len(self.env) - 1)
         t = i / self.fps
-        return int(-9 * math.sin(2 * math.pi * 1.4 * t) - 38 * float(self.env[i]))
+        return int(self.energy * (-9 * math.sin(2 * math.pi * 1.4 * t) - 38 * float(self.env[i])))

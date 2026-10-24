@@ -38,7 +38,7 @@ export async function GET(_req: Request, ctx: RouteContext<"/api/videos/[id]/sta
   const hit = cache.get(id);
   if (hit && Date.now() - hit.at < TTL_MS) return Response.json(hit.stats);
 
-  const token = getVideoToken(id);
+  const token = await getVideoToken(id);
   if (!token) return Response.json({ error: "Video not found" }, { status: 404 });
 
   const stats: LiveStats = (await fetchLive(token).catch(() => null)) ?? {

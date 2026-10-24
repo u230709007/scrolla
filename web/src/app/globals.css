@@ -8,7 +8,9 @@
   --color-pump: #39ff88;
   --color-dump: #ff3b6b;
   --color-gold: #ffd84d;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Segoe UI", Inter, Roboto, sans-serif;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Segoe UI",
+    Inter, Roboto, sans-serif;
 }
 
 :root {
@@ -54,4 +56,52 @@ body {
 }
 .animate-marquee {
   animation: marquee 18s linear infinite;
+}
+
+.app-screen {
+  position: absolute;
+  inset: 0 0 64px;
+  overflow-y: auto;
+  background: #101012;
+  padding-top: 20px;
+  padding-bottom: 24px;
+  scrollbar-width: none;
+}
+@media (min-width: 640px) {
+  .app-screen {
+    padding-top: 52px;
+  }
+}
+.eyebrow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: #a1a1aa;
+}
+.primary-button {
+  border-radius: 10px;
+  background: #fe2c55;
+  padding: 12px 18px;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+}
+.secondary-button {
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.07);
+  border: 1px solid rgb(255 255 255 / 0.09);
+  padding: 11px 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid #70e7e0;
+  outline-offset: 3px;
 }

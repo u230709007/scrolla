@@ -29,4 +29,10 @@ export function tradableAddress(token: { chain: string; tokenAddress: string | n
   return VAULT_ADDRESS && token.tokenAddress && token.chain === TOKEN_CHAIN ? (token.tokenAddress as Address) : null;
 }
 
-export const explorerTx = (hash: Hash) => `${CHAIN.blockExplorers.default.url}/tx/${hash}`;
+/** A reel about a real token on another network (mainnet reels while the app
+ * runs on testnet): shown for its market data, never bought, not even as a demo. */
+export function isForeignToken(token: { chain: string; tokenAddress: string | null }): boolean {
+  return !!token.tokenAddress && token.chain !== TOKEN_CHAIN;
+}
+
+export const explorerTx =(hash: Hash) => `${CHAIN.blockExplorers.default.url}/tx/${hash}`;

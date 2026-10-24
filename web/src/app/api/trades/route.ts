@@ -2,7 +2,7 @@ import { createPublicClient, getAddress, type Hash, http, isHash, parseEventLogs
 import { currentAddress } from "@/auth";
 import { appDb } from "@/lib/server/db";
 import { getVideoToken } from "@/lib/server/feed";
-import { CHAIN, RPC_URL, tradableAddress, VAULT_ADDRESS } from "@/lib/web3/chain";
+import { CHAIN, isForeignToken, RPC_URL, tradableAddress, VAULT_ADDRESS } from "@/lib/web3/chain";
 import { vaultAbi } from "@/lib/web3/vaultAbi";
 
 const client = createPublicClient({ chain: CHAIN, transport: http(RPC_URL) });
@@ -22,21 +22,29 @@ export async function POST(req: Request) {
   if (!address) return Response.json({ error: "Sign in to trade" }, { status: 401 });
 
   const body = (await req.json().catch(() => ({}))) as Body;
-  const token = body.videoId ? getVideoToken(body.videoId) : null;
+  const token = body.videoId ? await getVideoToken(body.videoId) : null;
   if (!body.videoId || !token) return Response.json({ error: "Video not found" }, { status: 404 });
 
-  const db = appDb();
-  const insert = db.prepare(
-    `INSERT INTO trades (video_id, address, token_symbol, token_address, amount_in_wei, amount_out, tx_hash, mode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (tx_hash) DO NOTHING`,
-  );
+  const db = await appDb();
+  const insert = {
+    run: (...args: (string | null)[]) =>
+      db.run(
+        `INSERT INTO trades (video_id, address, token_symbol, token_address, amount_in_wei, amount_out, tx_hash, mode)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (tx_hash) DO NOTHING`,
+        ...args,
+      ),
+  };
 
   if (body.mode === "demo") {
     if (tradableAddress(token)) {
       return Response.json({ error: "This token trades on-chain; demo trades are disabled" }, { status: 400 });
     }
+    // fake buys of mainnet tokens would show up as live AlphaScroll activity
+    if (isForeignToken(token)) {
+      return Response.json({ error: "Only testnet tokens can be bought" }, { status: 400 });
+    }
     const amount = /^\d{1,30}$/.test(body.amountInWei ?? "") ? body.amountInWei! : "0";
-    insert.run(body.videoId, address, token.symbol, token.tokenAddress, amount, null, null, "demo");
+    await insert.run(body.videoId, address, token.symbol, token.tokenAddress, amount, null, null, "demo");
     return Response.json({ ok: true, mode: "demo" }, { status: 201 });
   }
 
@@ -53,7 +61,7 @@ export async function POST(req: Request) {
   );
   if (!bought) return Response.json({ error: "No matching Bought event for this wallet" }, { status: 400 });
 
-  insert.run(
+  await insert.run(
     body.videoId,
     address,
     token.symbol,

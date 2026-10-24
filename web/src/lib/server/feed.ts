@@ -1,4 +1,6 @@
 import "server-only";
+import { compareActivity, isLive, liveActivity, tokenKey } from "./activity";
+import { MEDIA_BASE_URL } from "./config";
 import { appDb, workerDb } from "./db";
 import type { FeedPage, FeedVideo, TokenInfo } from "@/lib/types";
 
@@ -23,7 +25,19 @@ type VideoRow = {
   persona?: string | null;
 };
 
-const mediaUrl = (rel: string) => `/api/media/${rel.split("/").map(encodeURIComponent).join("/")}`;
+/** "videos/x.mp4" -> R2 public URL in production, /api/media/... locally. */
+export const mediaUrl = (rel: string) => {
+  const encoded = rel.split("/").map(encodeURIComponent).join("/");
+  return MEDIA_BASE_URL ? `${MEDIA_BASE_URL}/${encoded}` : `/api/media/${encoded}`;
+};
+
+/** Uploads stored before R2 point at /api/media; resolve them like worker paths. */
+export function resolveUpload(video: FeedVideo): FeedVideo {
+  const local = "/api/media/";
+  return video.videoUrl.startsWith(local)
+    ? { ...video, videoUrl: mediaUrl(decodeURIComponent(video.videoUrl.slice(local.length))) }
+    : video;
+}
 
 function toToken(row: VideoRow): TokenInfo {
   let extra: Record<string, unknown> = {};
@@ -48,34 +62,14 @@ function toToken(row: VideoRow): TokenInfo {
   };
 }
 
-function hasColumn(table: string, column: string): boolean {
+async function hasColumn(table: string, column: string): Promise<boolean> {
   const db = workerDb();
   if (!db) return false;
-  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
+  return (await db.all<{ name: string }>(`PRAGMA table_info(${table})`)).some((c) => c.name === column);
 }
 
-/** Cursor = "<created_at>|<id>" of the last item on the previous page. */
-export function listVideos({ cursor, limit = 10, viewer }: { cursor?: string | null; limit?: number; viewer?: string | null }): FeedPage {
-  const db = workerDb();
-  if (!db) return { videos: [], nextCursor: null };
-
-  // `format`/`persona` were added later; older worker DBs don't have them.
-  const extraCols = hasColumn("videos", "format") ? ", format, persona" : "";
-  const [cAt, cId] = cursor ? cursor.split("|") : [null, null];
-  const rows = (
-    cAt && cId
-      ? db
-          .prepare(
-            `SELECT *${extraCols} FROM videos WHERE (created_at, id) < (?, ?) ORDER BY created_at DESC, id DESC LIMIT ?`,
-          )
-          .all(cAt, cId, limit + 1)
-      : db.prepare(`SELECT *${extraCols} FROM videos ORDER BY created_at DESC, id DESC LIMIT ?`).all(limit + 1)
-  ) as unknown as VideoRow[];
-
-  const page = rows.slice(0, limit);
-  const social = socialCounts(page.map((r) => r.id), viewer ?? null);
-
-  const videos: FeedVideo[] = page.map((r) => ({
+function rowToVideo(r: VideoRow): Omit<FeedVideo, "likes" | "comments" | "trades" | "likedByMe"> {
+  return {
     id: r.id,
     createdAt: r.created_at,
     videoUrl: mediaUrl(r.video_path),
@@ -86,42 +80,180 @@ export function listVideos({ cursor, limit = 10, viewer }: { cursor?: string | n
     hook: r.hook ?? "",
     narration: r.narration ?? "",
     token: toToken(r),
-    ...social(r.id),
-  }));
-
-  const last = page.at(-1);
-  return { videos, nextCursor: rows.length > limit && last ? `${last.created_at}|${last.id}` : null };
+  };
 }
 
-export function videoExists(id: string): boolean {
+/** Cursor that starts the chronological feed from the top, handed out when the
+ * live section filled the whole first page. */
+export const CHRONO_START = "start";
+/** How many recent worker videos compete for the live section. */
+const LIVE_CANDIDATES = 200;
+
+/**
+ * First page of the feed: one video per token that is trading right now
+ * (newest AlphaScroll buy first, then DexScreener 5m/1h trades), topped up
+ * with the newest videos. Later pages continue chronologically via
+ * listVideos, so pagination stays stable while the ranking moves.
+ */
+export async function listLiveFeed({
+  limit = 10,
+  viewer,
+}: {
+  limit?: number;
+  viewer?: string | null;
+}): Promise<FeedPage> {
   const db = workerDb();
-  return !!db?.prepare("SELECT 1 FROM videos WHERE id = ?").get(id);
+  const extraCols = (await hasColumn("videos", "format")) ? ", format, persona" : "";
+  const rows = db
+    ? await db.all<VideoRow>(`SELECT *${extraCols} FROM videos ORDER BY created_at DESC, id DESC LIMIT ?`,
+        LIVE_CANDIDATES)
+    : [];
+  const candidates = rows.map(rowToVideo);
+  const newest = await listVideos({ limit, viewer });
+  const minted = newest.videos.filter((v) => v.source !== "upload"); // uploads have no token
+  const activity = await liveActivity([...candidates, ...minted].map((v) => v.token));
+  const liveOf = (v: { token: TokenInfo; source?: string }) =>
+    v.source === "upload" ? undefined : activity.get(tokenKey(v.token));
+
+  const seen = new Set<string>();
+  const hot = candidates
+    .filter((v) => {
+      const key = tokenKey(v.token);
+      if (seen.has(key) || !isLive(activity.get(key))) return false;
+      seen.add(key); // candidates are newest first: keep each token's latest video
+      return true;
+    })
+    .sort((a, b) => compareActivity(liveOf(a)!, liveOf(b)!) || b.createdAt.localeCompare(a.createdAt))
+    .slice(0, limit);
+
+  const hotIds = new Set(hot.map((v) => v.id));
+  const fill = newest.videos.filter((v) => !hotIds.has(v.id)).slice(0, limit - hot.length);
+  const social = await socialCounts([...hotIds], viewer ?? null);
+  const videos: FeedVideo[] = [
+    ...hot.map((v) => ({ ...v, ...social(v.id), live: liveOf(v) })),
+    ...fill.map((v) => (isLive(liveOf(v)) ? { ...v, live: liveOf(v) } : v)),
+  ];
+
+  const lastFill = fill.at(-1);
+  const moreAfterFill =
+    !!newest.nextCursor || fill.length < newest.videos.filter((v) => !hotIds.has(v.id)).length;
+  return {
+    videos,
+    nextCursor: lastFill
+      ? moreAfterFill
+        ? `${lastFill.createdAt}|${lastFill.id}`
+        : null
+      : newest.videos.length
+        ? CHRONO_START
+        : null,
+  };
 }
 
-export function getVideoToken(id: string): TokenInfo | null {
-  const row = workerDb()?.prepare("SELECT * FROM videos WHERE id = ?").get(id) as unknown as VideoRow | undefined;
+/** Cursor = "<created_at>|<id>" of the last item on the previous page. */
+export async function listVideos({
+  cursor,
+  limit = 10,
+  viewer,
+}: {
+  cursor?: string | null;
+  limit?: number;
+  viewer?: string | null;
+}): Promise<FeedPage> {
+  const db = workerDb();
+
+  // `format`/`persona` were added later; older worker DBs don't have them.
+  const extraCols = (await hasColumn("videos", "format")) ? ", format, persona" : "";
+  const [cAt, cId] = cursor && cursor !== CHRONO_START ? cursor.split("|") : [null, null];
+  const rows = !db
+    ? []
+    : cAt && cId
+      ? await db.all<VideoRow>(
+          `SELECT *${extraCols} FROM videos WHERE (created_at, id) < (?, ?) ORDER BY created_at DESC, id DESC LIMIT ?`,
+          cAt, cId, limit + 1,
+        )
+      : await db.all<VideoRow>(
+          `SELECT *${extraCols} FROM videos ORDER BY created_at DESC, id DESC LIMIT ?`,
+          limit + 1,
+        );
+
+  const page = rows.slice(0, limit);
+  const social = await socialCounts(
+    page.map((r) => r.id),
+    viewer ?? null,
+  );
+
+  const videos: FeedVideo[] = page.map((r) => ({ ...rowToVideo(r), ...social(r.id) }));
+
+  const app = await appDb();
+  const uploaded =
+    cAt && cId
+      ? await app.all<{ video_json: string }>(
+          "SELECT video_json FROM uploads WHERE (created_at, id) < (?, ?) ORDER BY created_at DESC, id DESC LIMIT ?",
+          cAt, cId, limit + 1,
+        )
+      : await app.all<{ video_json: string }>(
+          "SELECT video_json FROM uploads ORDER BY created_at DESC, id DESC LIMIT ?",
+          limit + 1,
+        );
+  const uploads = uploaded.map((r) => resolveUpload(JSON.parse(r.video_json) as FeedVideo));
+  const counts = await socialCounts(
+    uploads.map((v) => v.id),
+    viewer ?? null,
+  );
+  const combined = [
+    ...videos,
+    ...uploads.map((v) => ({ ...v, ...counts(v.id) })),
+  ].sort(
+    (a, b) =>
+      b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+  );
+  const result = combined.slice(0, limit);
+  const last = result.at(-1);
+  return {
+    videos: result,
+    nextCursor:
+      (combined.length > limit || rows.length > limit) && last
+        ? `${last.createdAt}|${last.id}`
+        : null,
+  };
+}
+
+export async function videoExists(id: string): Promise<boolean> {
+  const db = workerDb();
+  return (
+    !!(db && (await db.get("SELECT 1 FROM videos WHERE id = ?", id))) ||
+    !!(await (await appDb()).get("SELECT 1 FROM uploads WHERE id = ?", id))
+  );
+}
+
+export async function getVideoToken(id: string): Promise<TokenInfo | null> {
+  const row = await workerDb()?.get<VideoRow>("SELECT * FROM videos WHERE id = ?", id);
   return row ? toToken(row) : null;
 }
 
-function socialCounts(ids: string[], viewer: string | null) {
+async function socialCounts(ids: string[], viewer: string | null) {
   const empty = { likes: 0, comments: 0, trades: 0, likedByMe: false };
   if (!ids.length) return () => empty;
-  const db = appDb();
+  const db = await appDb();
   const marks = ids.map(() => "?").join(",");
-  const count = (table: string) =>
+  const count = async (table: string) =>
     new Map(
-      (db.prepare(`SELECT video_id, COUNT(*) AS n FROM ${table} WHERE video_id IN (${marks}) GROUP BY video_id`).all(
-        ...ids,
-      ) as { video_id: string; n: number }[]).map((r) => [r.video_id, Number(r.n)]),
+      (
+        await db.all<{ video_id: string; n: number }>(
+          `SELECT video_id, COUNT(*) AS n FROM ${table} WHERE video_id IN (${marks}) GROUP BY video_id`,
+          ...ids,
+        )
+      ).map((r) => [r.video_id, Number(r.n)]),
     );
-  const likes = count("likes");
-  const comments = count("comments");
-  const trades = count("trades");
+  const [likes, comments, trades] = await Promise.all([count("likes"), count("comments"), count("trades")]);
   const mine = viewer
     ? new Set(
-        (db.prepare(`SELECT video_id FROM likes WHERE address = ? AND video_id IN (${marks})`).all(viewer, ...ids) as {
-          video_id: string;
-        }[]).map((r) => r.video_id),
+        (
+          await db.all<{ video_id: string }>(
+            `SELECT video_id FROM likes WHERE address = ? AND video_id IN (${marks})`,
+            viewer, ...ids,
+          )
+        ).map((r) => r.video_id),
       )
     : new Set<string>();
 

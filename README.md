@@ -1,5 +1,34 @@
 # AlphaScroll
 
+## Creator UI
+
+The phone includes Home, Discover, Create (+), Trade and Profile navigation.
+Discover searches loaded videos and offers pagination. Profile shows your uploads
+and bookmarks stored in this browser, with wallet settings available separately.
+Signed-in users can publish MP4 files up to 50 MB with captions up to 300 characters.
+`POST /api/uploads` validates authentication, origin, size and MP4 signature;
+`GET /api/uploads` returns the current account's uploads. Media is stored in
+`worker/output/videos/`, and ownership/metadata in `web/data/app.db`.
+Uploads join the feed with likes/comments but do not trigger token purchases.
+Back up both locations. Hosting requires persistent writable storage.
+
+### Local Ollama scripts
+
+Start Ollama and choose a text model already available in `ollama list`.
+Set `OLLAMA_MODEL` to that exact model name in `worker/.env`; optionally set
+`OLLAMA_URL` (default: `http://127.0.0.1:11434`). Then run:
+
+```powershell
+cd worker
+python video_worker.py --format avatar --persona chog
+```
+
+Ollama generates the narration, hook and image prompt. MoviePy renders the MP4,
+which appears through the existing feed polling. Configured cloud providers and
+the template remain fallbacks if Ollama fails. Voice/image services may still use
+the internet. The Studio's Local AI panel explains setup; it does not start jobs
+or install models. [Ollama chat API](https://github.com/ollama/ollama/blob/main/docs/api.md).
+
 TikTok-style SocialFi & trading dApp for Monad degens, fed by an autonomous AI video pipeline that only uses free tools.
 
 ![AlphaScroll: mobile feed, double-tap buy with confetti, comments](docs/screenshot.png)
