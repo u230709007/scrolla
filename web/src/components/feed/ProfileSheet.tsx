@@ -1,6 +1,7 @@
 "use client";
 
-import { Copy, Droplets, LogOut, Wallet, Zap } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Copy, Droplets, Inbox, LogOut, Wallet, Zap } from "lucide-react";
 import { type Address, formatEther } from "viem";
 import { useBalance } from "wagmi";
 import { shortAddr } from "@/lib/format";
@@ -14,18 +15,25 @@ export function ProfileSheet({
   address,
   onClose,
   onOpenSession,
+  onOpenInbox,
   onRequestLogin,
 }: {
   open: boolean;
   address: string | null;
   onClose: () => void;
   onOpenSession: () => void;
+  onOpenInbox: () => void;
   onRequestLogin: () => void;
 }) {
   const toast = useToast();
+  const inbox = useQuery({
+    queryKey: ["inbox-count"],
+    enabled: open && !!address,
+    queryFn: async () => ((await (await fetch("/api/inbox", { cache: "no-store" })).json()) as { unseen: number }).unseen,
+  });
   const balance = useBalance({ address: (address ?? undefined) as Address | undefined, chainId: CHAIN.id, query: { enabled: open && !!address } });
   return (
-    <Sheet open={open} onClose={onClose} height="55%" title="Profile">
+    <Sheet open={open} onClose={onClose} height="65%" title="Profile">
       {address ? (
         <div className="space-y-3">
           <button
@@ -50,6 +58,12 @@ export function ProfileSheet({
               <Droplets className="size-5 text-monad-soft" /> Get testnet MON
             </a>
           )}
+          <button onClick={onOpenInbox} className="flex w-full items-center gap-3 rounded-2xl bg-white/5 p-4 text-sm font-semibold">
+            <Inbox className="size-5 text-monad-soft" /> Gelen paylaşımlar
+            {!!inbox.data && inbox.data > 0 && (
+              <span className="ml-auto rounded-full bg-monad px-2 py-0.5 text-[11px] font-bold">{inbox.data}</span>
+            )}
+          </button>
           <button onClick={onOpenSession} className="flex w-full items-center gap-3 rounded-2xl bg-white/5 p-4 text-sm font-semibold">
             <Zap className="size-5 text-gold" /> One-tap trading
           </button>

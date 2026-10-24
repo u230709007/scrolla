@@ -231,6 +231,21 @@ export async function getVideoToken(id: string): Promise<TokenInfo | null> {
   return row ? toToken(row) : null;
 }
 
+/** A single reel by id (worker or user upload), with social counts for `viewer`. */
+export async function getVideo(id: string, viewer: string | null): Promise<FeedVideo | null> {
+  const db = workerDb();
+  const extraCols = (await hasColumn("videos", "format")) ? ", format, persona" : "";
+  const row = db ? await db.get<VideoRow>(`SELECT *${extraCols} FROM videos WHERE id = ?`, id) : undefined;
+  let video: Omit<FeedVideo, "likes" | "comments" | "trades" | "likedByMe"> | null = row ? rowToVideo(row) : null;
+  if (!video) {
+    const up = await (await appDb()).get<{ video_json: string }>("SELECT video_json FROM uploads WHERE id = ?", id);
+    if (up) video = resolveUpload(JSON.parse(up.video_json) as FeedVideo);
+  }
+  if (!video) return null;
+  return { ...video, ...(await socialCounts([id], viewer))(id) };
+}
+
+
 async function socialCounts(ids: string[], viewer: string | null) {
   const empty = { likes: 0, comments: 0, trades: 0, likedByMe: false };
   if (!ids.length) return () => empty;

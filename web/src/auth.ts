@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { cookies } from "next/headers";
 import { createPublicClient, getAddress, type Hex, http, verifyMessage } from "viem";
 import { parseSiweMessage, validateSiweMessage } from "viem/siwe";
+import { registerUser } from "@/lib/server/social";
 import { CHAIN, RPC_URL } from "@/lib/web3/chain";
 
 export const NONCE_COOKIE = "alphascroll.siwe-nonce";
@@ -46,7 +47,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!validateSiweMessage({ message: fields, domain: host, nonce })) return null;
         if (!(await verifySignature(fields.address, message, signature))) return null;
 
-        return { id: getAddress(fields.address) };
+        const address = getAddress(fields.address);
+        await registerUser(address).catch(() => undefined); // never block sign-in on this
+        return { id: address };
       },
     }),
   ],

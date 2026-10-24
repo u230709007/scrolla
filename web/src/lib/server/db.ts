@@ -55,6 +55,27 @@ CREATE TABLE IF NOT EXISTS trades (
   created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_trades_video ON trades(video_id);
+CREATE TABLE IF NOT EXISTS users (
+  address    TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  last_seen  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE TABLE IF NOT EXISTS follows (
+  follower   TEXT NOT NULL,
+  followee   TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (follower, followee)
+);
+CREATE INDEX IF NOT EXISTS idx_follows_followee ON follows(followee);
+CREATE TABLE IF NOT EXISTS shares (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  video_id     TEXT NOT NULL,
+  from_address TEXT NOT NULL,
+  to_address   TEXT NOT NULL,
+  seen         INTEGER NOT NULL DEFAULT 0,
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_shares_to ON shares(to_address, id DESC);
 `;
 
 function wrap(client: Client): Db {

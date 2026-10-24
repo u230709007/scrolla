@@ -41,13 +41,15 @@ import { VideoCard } from "./VideoCard";
 
 import { WalletGuard } from "./WalletGuard";
 
+import { InboxSheet, ShareSheet } from "./ShareSheet";
+
 const PAGE_SIZE = 8;
 
 const POLL_MS = 20_000;
 
 const DEMO_AMOUNT = parseEther("0.1");
 
-type SheetKind = "comments" | "stats" | "session" | "profile";
+type SheetKind = "comments" | "stats" | "session" | "profile" | "share" | "inbox";
 
 async function fetchPage(cursor?: string | null): Promise<FeedPage> {
   const qs = new URLSearchParams({ limit: String(PAGE_SIZE) });
@@ -526,6 +528,11 @@ export function Feed({
   const onLike = useCallback((v: FeedVideo) => like(v), [like]);
 
   const onShare = useCallback(
+    (v: FeedVideo) => openSheet("share", v),
+    [openSheet],
+  );
+
+  const shareLink = useCallback(
     async (v: FeedVideo) => {
       const url = new URL(v.videoUrl, window.location.origin).href;
 
@@ -846,7 +853,27 @@ export function Feed({
 
         onOpenSession={() => setSheet("session")}
 
+        onOpenInbox={() => setSheet("inbox")}
+
         onRequestLogin={onRequestLogin}
+      />
+
+      <ShareSheet
+        open={sheet === "share"}
+        video={sheetVideo}
+        address={address}
+        onClose={() => setSheet(null)}
+        onRequestLogin={onRequestLogin}
+        onCopyLink={shareLink}
+      />
+
+      <InboxSheet
+        open={sheet === "inbox"}
+        onClose={() => setSheet(null)}
+        onOpenVideo={(v) => {
+          setSheet(null);
+          selectVideo(v);
+        }}
       />
     </div>
   );
