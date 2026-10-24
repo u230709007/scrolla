@@ -46,6 +46,7 @@ import sqlite3
 import time
 import uuid
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -71,6 +72,7 @@ from moviepy import (
     VideoClip,
     vfx,
 )
+from moviepy.video.io.ffmpeg_writer import FFMPEG_VideoWriter
 import cloud
 import local_gen
 from styles import SR, STYLES, FrameFX, Style, grade, make_music, mix_tracks, pick_style, random_hook
@@ -102,8 +104,10 @@ DB_PATH = BASE_DIR / os.getenv("DB_PATH", "output/alphascroll.db")
 INTERVAL_MINUTES = float(os.getenv("INTERVAL_MINUTES", "2"))
 AVATAR_RATIO = float(os.getenv("AVATAR_RATIO", "0.5"))  # share of avatar videos in random mode
 MAINNET_RATIO = float(os.getenv("MAINNET_RATIO", "0.5"))  # share of mainnet reels in --source mixed
-# auto: SDXL-Lightning on the local GPU when CUDA is available, else Pollinations
+# auto: Pollinations first (fast), SDXL-Lightning on the local GPU when it fails
 IMAGE_ENGINE = os.getenv("IMAGE_ENGINE", "auto")  # auto | local | pollinations
+# Worker threads building video frames in parallel
+RENDER_THREADS = int(os.getenv("RENDER_THREADS", "0")) or min(8, os.cpu_count() or 2)
 # Share of videos whose background is animated with LTX-Video (slow: minutes per clip)
 MOTION_RATIO = float(os.getenv("MOTION_RATIO", "0"))
 # Written by `npm run setup:testnet` in contracts/: test tokens with liquidity on Monad testnet
@@ -938,12 +942,22 @@ def silent_track(text: str, workdir: Path) -> tuple[Path, list[Word]]:
 
 def fetch_image(prompt: str, workdir: Path, up: bool = True) -> Path:
     path = workdir / "background.jpg"
-    if IMAGE_ENGINE == "local" or (IMAGE_ENGINE == "auto" and local_gen.available()):
+    use_local = IMAGE_ENGINE == "local" or (IMAGE_ENGINE == "auto" and local_gen.available())
+    # Pollinations answers in ~5s vs ~35s for SDXL on a laptop GPU: try it once first and
+    # fall back to the GPU instead of sitting out its 45s rate limit
+    if IMAGE_ENGINE != "local" and pollinations_image(prompt, path, attempts=1 if use_local else 4):
+        return path
+    if use_local:
         try:
             local_gen.release_ollama(OLLAMA_URL, OLLAMA_MODEL)
             return local_gen.generate_image(prompt, path, random.randint(1, 10**9))
         except Exception as exc:
-            log.warning("Local SDXL failed (%s) — falling back to Pollinations", exc)
+            log.warning("Local SDXL failed (%s)", exc)
+    log.warning("No image engine available — generating procedural background")
+    return procedural_background(path, up)
+
+
+def pollinations_image(prompt: str, path: Path, attempts: int) -> bool:
     url = f"https://image.pollinations.ai/prompt/{quote(prompt, safe='')}"
     params = {
         "width": W,
@@ -952,10 +966,10 @@ def fetch_image(prompt: str, workdir: Path, up: bool = True) -> Path:
         "nologo": "true",
         "model": "flux",
     }
-    for attempt in range(1, 5):
+    for attempt in range(1, attempts + 1):
         wait = 5 * attempt
         try:
-            resp = requests.get(url, params=params, timeout=120)
+            resp = requests.get(url, params=params, timeout=60 if attempts == 1 else 120)
             if resp.status_code in (402, 429):
                 # Keyless tier: 1 image / 45s per IP. The body says "Retry after Ns".
                 m = re.search(r"[Rr]etry after (\d+)", resp.text)
@@ -963,13 +977,12 @@ def fetch_image(prompt: str, workdir: Path, up: bool = True) -> Path:
             resp.raise_for_status()
             path.write_bytes(resp.content)
             Image.open(path).verify()  # reject HTML error pages
-            return path
+            return True
         except Exception as exc:
-            log.warning("Pollinations attempt %d failed: %s (retry in %ds)", attempt, exc, wait)
-            if attempt < 4:
+            log.warning("Pollinations attempt %d failed: %s", attempt, exc)
+            if attempt < attempts:
                 time.sleep(wait)
-    log.warning("Pollinations unavailable — generating procedural background")
-    return procedural_background(path, up)
+    return False
 
 
 def procedural_background(path: Path, up: bool = True) -> Path:
@@ -1212,25 +1225,40 @@ def render_video(
     caption_y = int(H * 0.36) if persona else int(H * 0.62)
     layers = [bg, *header_clips(token, script.hook, font, duration, persona is not None, style),
               *caption_clips(words, font, duration, caption_y, style)]
-    video = CompositeVideoClip(layers, size=(W, H)).with_duration(duration).with_audio(audio)
-    video.write_videofile(
-        str(out_path),
-        fps=FPS,
+    video = CompositeVideoClip(layers, size=(W, H)).with_duration(duration)
+    m4a = out_path.with_suffix(".tmp.m4a")
+    audio.write_audiofile(str(m4a), fps=SR, codec="aac", bitrate="192k", logger=None)
+    with FFMPEG_VideoWriter(
+        str(out_path), (W, H), FPS,
         codec="libx264",
-        audio_codec="aac",
-        audio_bitrate="192k",
+        audiofile=str(m4a),
+        audio_codec="copy",
         preset=os.getenv("X264_PRESET", "veryfast"),
         threads=os.cpu_count() or 2,
         # CRF for quality, capped so grain/rain can't balloon the file past a phone-friendly bitrate
         ffmpeg_params=["-pix_fmt", "yuv420p", "-movflags", "+faststart", "-crf", "22",
                        "-maxrate", "9M", "-bufsize", "18M", "-profile:v", "high"],
-        temp_audiofile=str(out_path.with_suffix(".tmp.m4a")),
-        logger=None,
-    )
+    ) as writer:
+        for frame in parallel_frames(video, int(duration * FPS)):
+            writer.write_frame(frame)
+    m4a.unlink(missing_ok=True)
     video.close()
     audio.close()
     voice.close()
     return duration
+
+
+def parallel_frames(clip: VideoClip, n: int):
+    """Frames in order, built RENDER_THREADS at a time. PIL and numpy release the GIL, so
+    this is ~3x the single-threaded moviepy loop; the window bounds RAM to a few dozen frames."""
+    with ThreadPoolExecutor(RENDER_THREADS) as pool:
+        pending: collections.deque = collections.deque()
+        for i in range(n):
+            pending.append(pool.submit(clip.get_frame, i / FPS))
+            if len(pending) >= RENDER_THREADS * 2:
+                yield pending.popleft().result().astype(np.uint8, copy=False)
+        while pending:
+            yield pending.popleft().result().astype(np.uint8, copy=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -1380,17 +1408,18 @@ def run_once(source: str, fmt: str = "random", persona_key: str | None = None,
     (workdir / "script.json").write_text(json.dumps(asdict(script), indent=2))
 
     if persona:
-        audio_path, words = synthesize_speech(script.narration, workdir, persona.voice,
-                                              edge_pitch(persona.pitch, style.pitch_hz), style.rate)
+        voice_args = (persona.voice, edge_pitch(persona.pitch, style.pitch_hz), style.rate)
     else:
-        audio_path, words = synthesize_speech(script.narration, workdir, style.voice or TTS_VOICE,
-                                              edge_pitch(style.pitch_hz), style.rate)
-    log.info("[3/5] Voice: %s (%d words)", audio_path.name, len(words))
-
+        voice_args = (style.voice or TTS_VOICE, edge_pitch(style.pitch_hz), style.rate)
     prompt = script.image_prompt
     if style.image_style not in prompt:  # keep the look on-mood even if the LLM drifts
         prompt = f"{prompt}, {style.image_style}"
-    image = fetch_image(prompt, workdir, token.change_24h >= 0)
+    # voice and image only depend on the script: fetch them side by side
+    with ThreadPoolExecutor(2) as pool:
+        speech = pool.submit(synthesize_speech, script.narration, workdir, *voice_args)
+        image = fetch_image(prompt, workdir, token.change_24h >= 0)
+        audio_path, words = speech.result()
+    log.info("[3/5] Voice: %s (%d words)", audio_path.name, len(words))
     log.info("[4/5] Image: %s", image)
     if motion is None:
         motion = random.random() < MOTION_RATIO
@@ -1442,11 +1471,13 @@ def main() -> None:
     log.info("Daemon started — one video every %.0f min (Ctrl+C to stop)", args.interval)
     while True:
         started = time.time()
+        wait = args.interval * 60
         try:
             run_once(args.source, args.format, args.persona, args.style, args.motion)
         except Exception:
             log.exception("Run failed; retrying next cycle")
-        time.sleep(max(0.0, args.interval * 60 - (time.time() - started)))
+            wait = max(wait, 30)  # don't hammer the APIs in a tight loop when --interval 0
+        time.sleep(max(0.0, wait - (time.time() - started)))
 
 
 if __name__ == "__main__":

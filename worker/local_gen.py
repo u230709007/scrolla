@@ -68,13 +68,16 @@ def generate_image(prompt: str, out_path: Path, seed: int) -> Path:
     pipe.enable_model_cpu_offload()
     pipe.enable_vae_tiling()
     width, height = IMAGE_SIZE
-    image = pipe(
-        prompt=prompt, width=width, height=height, num_inference_steps=4, guidance_scale=0.0,
-        generator=torch.Generator("cpu").manual_seed(seed),
-    ).images[0]
+    try:
+        image = pipe(
+            prompt=prompt, width=width, height=height, num_inference_steps=4, guidance_scale=0.0,
+            generator=torch.Generator("cpu").manual_seed(seed),
+        ).images[0]
+    finally:
+        # on OOM the traceback would otherwise pin ~7 GB of weights in RAM through the render
+        del pipe
+        _free()
     image.save(out_path, quality=95)
-    del pipe
-    _free()
     return out_path
 
 
