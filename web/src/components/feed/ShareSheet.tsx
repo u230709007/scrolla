@@ -9,9 +9,56 @@ import { useToast } from "../Toast";
 import { Sheet } from "./Sheet";
 
 type AppUser = { address: string; following: boolean; followsMe: boolean };
-export type InboxItem = { id: number; videoId: string; from: string; seen: boolean; createdAt: string };
+export type InboxItem = {
+  kind: "share" | "follow" | "join";
+  id: string;
+  videoId: string | null;
+  from: string;
+  seen: boolean;
+  following: boolean;
+  createdAt: string;
+};
 
 const avatar = (a: string) => ({ background: `linear-gradient(135deg, #${a.slice(2, 8)}, #${a.slice(-6)})` });
+
+/** Follow / unfollow a user, then refresh every list that shows follow state. */
+function useFollow() {
+  const toast = useToast();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ address, follow }: { address: string; follow: boolean }) => {
+      const res = await fetch("/api/users/follow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, follow }),
+      });
+      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Takip edilemedi");
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["users"] });
+      qc.invalidateQueries({ queryKey: ["inbox"] });
+      qc.invalidateQueries({ queryKey: ["follow-stats"] });
+    },
+    onError: (e) => toast.show({ kind: "error", title: e.message }),
+  });
+}
+
+function FollowButton({ address, following }: { address: string; following: boolean }) {
+  const follow = useFollow();
+  return (
+    <button
+      onClick={() => follow.mutate({ address, follow: !following })}
+      disabled={follow.isPending}
+      className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold ${following ? "bg-white/10 text-white/80" : "bg-monad"}`}
+    >
+      {following ? <UserCheck className="size-3.5" /> : <UserPlus className="size-3.5" />}
+      {following ? "Takipte" : "Takip et"}
+    </button>
+  );
+}
+
+const relation = (u: AppUser) =>
+  u.followsMe ? (u.following ? "Karşılıklı takip" : "Seni takip ediyor") : u.following ? "Takip ediyorsun" : "Önerilen";
 
 /** Share a reel: suggested registered users (follow them, tick, send) + link sharing. */
 export function ShareSheet({
@@ -30,7 +77,6 @@ export function ShareSheet({
   onCopyLink: (video: FeedVideo) => void;
 }) {
   const toast = useToast();
-  const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
 
@@ -42,19 +88,6 @@ export function ShareSheet({
       if (!res.ok) throw new Error("Kullanıcılar yüklenemedi");
       return ((await res.json()) as { users: AppUser[] }).users;
     },
-  });
-
-  const follow = useMutation({
-    mutationFn: async (u: AppUser) => {
-      const res = await fetch("/api/users/follow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: u.address, follow: !u.following }),
-      });
-      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Takip edilemedi");
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }),
-    onError: (e) => toast.show({ kind: "error", title: e.message }),
   });
 
   const send = useMutation({
@@ -129,19 +162,10 @@ export function ShareSheet({
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate font-mono text-sm font-bold">{shortAddr(u.address)}</span>
-                        <span className="block text-xs text-white/50">
-                          {u.followsMe ? (u.following ? "Karşılıklı takip" : "Seni takip ediyor") : u.following ? "Takip ediyorsun" : "Önerilen"}
-                        </span>
+                        <span className="block text-xs text-white/50">{relation(u)}</span>
                       </span>
                     </button>
-                    <button
-                      onClick={() => follow.mutate(u)}
-                      disabled={follow.isPending}
-                      className={`flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold ${u.following ? "bg-white/10 text-white/80" : "bg-monad"}`}
-                    >
-                      {u.following ? <UserCheck className="size-3.5" /> : <UserPlus className="size-3.5" />}
-                      {u.following ? "Takipte" : "Takip et"}
-                    </button>
+                    <FollowButton address={u.address} following={u.following} />
                   </li>
                 );
               })}
@@ -161,7 +185,54 @@ export function ShareSheet({
   );
 }
 
-/** Reels other users sent me. */
+/** My followers or the people I follow, with follow-back buttons. */
+export function PeopleSheet({
+  list,
+  onClose,
+}: {
+  list: "followers" | "following" | null;
+  onClose: () => void;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["users", "list", list],
+    enabled: !!list,
+    queryFn: async () => {
+      const res = await fetch(`/api/users?list=${list}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Kullanıcılar yüklenemedi");
+      return ((await res.json()) as { users: AppUser[] }).users;
+    },
+  });
+  return (
+    <Sheet open={!!list} onClose={onClose} title={list === "following" ? "Takip edilenler" : "Takipçiler"} height="65%">
+      <ul className="space-y-1">
+        {isLoading && <Loader2 className="mx-auto mt-6 size-6 animate-spin text-white/40" />}
+        {data?.length === 0 && (
+          <li className="mt-10 text-center text-sm text-white/50">
+            {list === "following" ? "Henüz kimseyi takip etmiyorsun." : "Henüz takipçin yok."}
+          </li>
+        )}
+        {data?.map((u) => (
+          <li key={u.address} className="flex items-center gap-3 rounded-2xl p-2">
+            <span className="size-10 shrink-0 rounded-full" style={avatar(u.address)} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-mono text-sm font-bold">{shortAddr(u.address)}</span>
+              <span className="block text-xs text-white/50">{relation(u)}</span>
+            </span>
+            <FollowButton address={u.address} following={u.following} />
+          </li>
+        ))}
+      </ul>
+    </Sheet>
+  );
+}
+
+const NOTICE: Record<InboxItem["kind"], string> = {
+  share: "sana bir video gönderdi",
+  follow: "seni takip etmeye başladı",
+  join: "AlphaScroll'a katıldı",
+};
+
+/** Notifications: reels other users sent me, new followers, newly joined users. */
 export function InboxSheet({
   open,
   onClose,
@@ -187,28 +258,34 @@ export function InboxSheet({
   });
 
   async function openItem(item: InboxItem) {
+    if (!item.videoId) return;
     const res = await fetch(`/api/videos/${item.videoId}`, { cache: "no-store" });
     if (!res.ok) return toast.show({ kind: "error", title: "Video artık yok" });
     onOpenVideo(((await res.json()) as { video: FeedVideo }).video);
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title="Gelen paylaşımlar" height="65%">
+    <Sheet open={open} onClose={onClose} title="Bildirimler" height="65%">
       <ul className="space-y-1">
         {isLoading && <Loader2 className="mx-auto mt-6 size-6 animate-spin text-white/40" />}
-        {data?.length === 0 && <li className="mt-10 text-center text-sm text-white/50">Henüz sana gönderilen video yok.</li>}
+        {data?.length === 0 && <li className="mt-10 text-center text-sm text-white/50">Henüz bildirimin yok.</li>}
         {data?.map((i) => (
-          <li key={i.id}>
-            <button onClick={() => openItem(i)} className="flex w-full items-center gap-3 rounded-2xl p-2 text-left hover:bg-white/5">
+          <li key={i.id} className="flex items-center gap-2 rounded-2xl p-2 hover:bg-white/5">
+            <button
+              onClick={() => openItem(i)}
+              disabled={!i.videoId}
+              className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
+            >
               <span className="size-10 shrink-0 rounded-full" style={avatar(i.from)} />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm">
-                  <span className="font-mono font-bold">{shortAddr(i.from)}</span> sana bir video gönderdi
+                  <span className="font-mono font-bold">{shortAddr(i.from)}</span> {NOTICE[i.kind]}
                 </span>
                 <span className="block text-xs text-white/50">{timeAgo(i.createdAt)} önce</span>
               </span>
-              {!i.seen && <span className="size-2 rounded-full bg-monad" />}
+              {!i.seen && <span className="size-2 shrink-0 rounded-full bg-monad" />}
             </button>
+            {i.kind !== "share" && <FollowButton address={i.from} following={i.following} />}
           </li>
         ))}
       </ul>

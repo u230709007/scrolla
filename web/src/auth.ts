@@ -77,7 +77,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
 });
 
-/** Checksummed address of the signed-in wallet, or null. */
+// Wallets already upserted into `users` by this server instance.
+const seen = new Set<string>();
+
+/** Checksummed address of the signed-in wallet, or null. Also makes sure the
+ * wallet is in `users`, so sessions that predate the table still show up. */
 export async function currentAddress(): Promise<string | null> {
-  return (await auth())?.address ?? null;
+  const address = (await auth())?.address ?? null;
+  if (address && !seen.has(address)) {
+    await registerUser(address)
+      .then(() => seen.add(address))
+      .catch(() => undefined);
+  }
+  return address;
 }

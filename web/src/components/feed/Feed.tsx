@@ -41,7 +41,7 @@ import { VideoCard } from "./VideoCard";
 
 import { WalletGuard } from "./WalletGuard";
 
-import { InboxSheet, ShareSheet } from "./ShareSheet";
+import { InboxSheet, PeopleSheet, ShareSheet } from "./ShareSheet";
 
 const PAGE_SIZE = 8;
 
@@ -49,7 +49,7 @@ const POLL_MS = 20_000;
 
 const DEMO_AMOUNT = parseEther("0.1");
 
-type SheetKind = "comments" | "stats" | "session" | "profile" | "share" | "inbox";
+type SheetKind = "comments" | "stats" | "session" | "profile" | "share" | "inbox" | "followers" | "following";
 
 async function fetchPage(cursor?: string | null): Promise<FeedPage> {
   const qs = new URLSearchParams({ limit: String(PAGE_SIZE) });
@@ -719,6 +719,7 @@ export function Feed({
           onUpload={() => setScreen("upload")}
           onSettings={() => setSheet("profile")}
           onLogin={onRequestLogin}
+          onPeople={setSheet}
           revision={profileRevision}
         />
       )}
@@ -875,9 +876,20 @@ export function Feed({
         onCopyLink={shareLink}
       />
 
+      <PeopleSheet
+        list={sheet === "followers" || sheet === "following" ? sheet : null}
+        onClose={() => {
+          setSheet(null);
+          setProfileRevision((r) => r + 1);
+        }}
+      />
+
       <InboxSheet
         open={sheet === "inbox"}
-        onClose={() => setSheet(null)}
+        onClose={() => {
+          setSheet(null);
+          setProfileRevision((r) => r + 1);
+        }}
         onOpenVideo={(v) => {
           setSheet(null);
           selectVideo(v);

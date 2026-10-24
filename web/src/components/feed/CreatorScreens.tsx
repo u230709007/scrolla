@@ -133,6 +133,7 @@ export function CreatorProfile({
   onUpload,
   onSettings,
   onLogin,
+  onPeople,
   revision,
 }: {
   address: string | null;
@@ -141,6 +142,7 @@ export function CreatorProfile({
   onUpload: () => void;
   onSettings: () => void;
   onLogin: () => void;
+  onPeople: (list: "followers" | "following") => void;
   revision: number;
 }) {
   const [videos, setVideos] = useState<FeedVideo[]>([]);
@@ -213,14 +215,14 @@ export function CreatorProfile({
             : "Hikâyeni paylaşmaya başla"}
         </p>
         <div className="mx-auto my-5 flex max-w-64 justify-around">
-          <div>
+          <button onClick={() => (address ? onPeople("followers") : onLogin())}>
             <b className="text-lg">{stats.followers}</b>
             <p className="text-[11px] text-white/45">Takipçi</p>
-          </div>
-          <div>
+          </button>
+          <button onClick={() => (address ? onPeople("following") : onLogin())}>
             <b className="text-lg">{stats.following}</b>
             <p className="text-[11px] text-white/45">Takip</p>
-          </div>
+          </button>
         </div>
         <div className="flex justify-center gap-2">
           <button

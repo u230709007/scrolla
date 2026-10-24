@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Copy, Droplets, Inbox, LogOut, Wallet, Zap } from "lucide-react";
+import { Bell, Copy, Droplets, LogOut, Wallet, Zap } from "lucide-react";
 import { type Address, formatEther } from "viem";
 import { useBalance } from "wagmi";
 import { shortAddr } from "@/lib/format";
@@ -59,7 +59,7 @@ export function ProfileSheet({
             </a>
           )}
           <button onClick={onOpenInbox} className="flex w-full items-center gap-3 rounded-2xl bg-white/5 p-4 text-sm font-semibold">
-            <Inbox className="size-5 text-monad-soft" /> Gelen paylaşımlar
+            <Bell className="size-5 text-monad-soft" /> Bildirimler
             {!!inbox.data && inbox.data > 0 && (
               <span className="ml-auto rounded-full bg-monad px-2 py-0.5 text-[11px] font-bold">{inbox.data}</span>
             )}

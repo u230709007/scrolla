@@ -83,6 +83,22 @@ CREATE TABLE IF NOT EXISTS saved_videos (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   PRIMARY KEY (address, video_id)
 );
+CREATE TABLE IF NOT EXISTS inbox_reads (
+  address TEXT PRIMARY KEY,
+  seen_at TEXT NOT NULL
+);
+-- Backfill wallets that were active before they got a users row.
+INSERT OR IGNORE INTO users (address, created_at, last_seen)
+  SELECT address, MIN(created_at), MAX(created_at) FROM (
+    SELECT address, created_at FROM likes
+    UNION ALL SELECT address, created_at FROM comments
+    UNION ALL SELECT address, created_at FROM trades
+    UNION ALL SELECT address, created_at FROM uploads
+    UNION ALL SELECT address, created_at FROM saved_videos
+    UNION ALL SELECT follower, created_at FROM follows
+    UNION ALL SELECT from_address, created_at FROM shares
+  ) WHERE address LIKE '0x%' AND length(address) = 42
+  GROUP BY lower(address);
 `;
 
 function wrap(client: Client): Db {
