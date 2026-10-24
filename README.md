@@ -75,7 +75,7 @@ We also built around Monad specifics rather than ignoring them: Monad bills the 
 | AI video worker (token pick → script → voice → image → avatar → MP4) | **Live**: renders a reel in about a minute, on a loop |
 | Feed, likes, comments, follows, share-to-user inbox, notifications, saved reels | **Live**, stored in SQLite locally or Turso in production |
 | Creator MP4 uploads (Vercel Blob / R2 / local disk) | **Live** |
-| Live token stats (DexScreener, GeckoTerminal trades) | **Live** for mainnet tokens; testnet tokens show their render-time snapshot |
+| Live token stats | **Live**: DexScreener and GeckoTerminal trades for mainnet tokens; for testnet tokens, price and liquidity read from the pool's reserves (× real MON/USD from CoinGecko) and volume from AlphaScroll's on-chain buys |
 | Reels about mainnet tokens (`--source dexscreener`) | Market data is real; buying them is **disabled** while the app runs on testnet |
 | Mock tokens (when no deployment file exists) | **Demo mode**: confetti and a trade recorded as `demo`, no transaction |
 
