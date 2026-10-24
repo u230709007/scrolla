@@ -1307,18 +1307,19 @@ def header_clips(token: TokenData, hook: str, font: str, duration: float, avatar
         .with_duration(duration).with_position(("center", SAFE_TOP + 70))
     if avatar_mode:  # captions sit between the badge and the avatar's head: no room for more
         return [tag, badge]
-    hook_clip = TextClip(
-        font=font,
-        text=clean_caption(hook).upper(),
-        font_size=92,
-        color=style.hook_color,
-        stroke_color="black",
-        stroke_width=10,
-        method="caption",
-        size=(W - 140, None),
-        text_align="center",
-        margin=(20, 20),
-    ).with_duration(min(2.2, duration)).with_position(("center", SAFE_TOP + 270))
+    # One line only: a wrapped hook would run into the captions just below it
+    words = clean_caption(hook).upper().split() or [token.symbol]
+    size = 92
+    while True:
+        hook_clip = TextClip(font=font, text=" ".join(words), font_size=size, color=style.hook_color,
+                             stroke_color="black", stroke_width=10, margin=(20, 20))
+        if hook_clip.w <= W - 140 or (size <= 60 and len(words) == 1):
+            break
+        if size > 60:
+            size -= 8
+        else:  # still too long at a readable size: drop words from the end
+            words = words[:-1]
+    hook_clip = hook_clip.with_duration(min(2.2, duration)).with_position(("center", SAFE_TOP + 270))
     stats = TextClip(
         font=font,
         text=f"VOL {fmt_usd(token.volume_24h)}   MC {fmt_usd(token.market_cap)}",
