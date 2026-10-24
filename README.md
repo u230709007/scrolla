@@ -214,5 +214,4 @@ We'd rather tell you than have you find it:
 
 1. Per-session token allowlist in the vault, and a signature from the session key in `authorizeSession` (fixes V-1's second attack and V-2).
 2. Mainnet: integrate an existing Monad V2 router, professional audit.
-3. Creator revenue share: a cut of the swap fee on buys made from a creator's reel, paid on-chain.
-4. Sell from the feed and a portfolio view with P&L.
+3. Sell from the feed and a portfolio view with P&L.
